@@ -1441,6 +1441,10 @@ function hideRoundResult() {
 function hideWinnerOverlay() {
   clearInterval(winnerTimer);
   winnerTimer = null;
+  if (currentBingoAudio) {
+    currentBingoAudio.pause();
+    currentBingoAudio.currentTime = 0;
+  }
   const overlay = $("winner-overlay");
   if (!overlay) return;
   overlay.hidden = true;
@@ -1636,6 +1640,7 @@ function showWinnerOverlay(outcome, winnerName, prize = null, cardId = null, kin
   if (prizeElem) prizeElem.textContent = finalPrize;
   if (message) message.textContent = isPlayerWinner ? "You won this round!" : `${finalName} won this round.`;
 
+  playBingoVoice();
   renderWinnerConfetti();
   renderWinnerCard(finalCardId, activeHitSet(), kind);
 
@@ -1807,17 +1812,18 @@ function playCallVoice(number, letter) {
       currentCallAudio.pause();
       currentCallAudio.currentTime = 0;
     }
+    const l = String(letter).toLowerCase();
+    const u = String(letter).toUpperCase();
     const candidates = [
-      `assets/audio/${letter}${number}.mp3`,
+      `assets/audio/${l}${number}.mp3`,
+      `assets/audio/${u}${number}.mp3`,
       `assets/audio/${number}.mp3`,
-      `assets/audio/${letter}-${number}.mp3`,
-      `assets/audio/${letter.toLowerCase()}${number}.mp3`,
-      `assets/audio/${letter}${number}.wav`,
+      `assets/audio/${l}-${number}.mp3`,
+      `assets/audio/${u}-${number}.mp3`,
+      `assets/audio/${l}${number}.wav`,
       `assets/audio/${number}.wav`,
-      `assets/audio/${letter}${number}.m4a`,
-      `assets/audio/${number}.m4a`,
-      `assets/audio/${letter}${number}.ogg`,
-      `assets/audio/${number}.ogg`
+      `assets/audio/${l}${number}.m4a`,
+      `assets/audio/${number}.m4a`
     ];
     let candidateIndex = 0;
     const audio = new Audio();
@@ -1833,7 +1839,77 @@ function playCallVoice(number, letter) {
     currentCallAudio = audio;
     audio.play().catch(() => {});
   } catch (err) {
-    // Graceful ignore if audio permissions or files are unavailable
+    // Graceful ignore
+  }
+}
+
+let currentBingoAudio = null;
+function playBingoVoice() {
+  if (!soundEffectsEnabled) return;
+  try {
+    if (currentCallAudio) {
+      currentCallAudio.pause();
+      currentCallAudio.currentTime = 0;
+    }
+    if (currentBingoAudio) {
+      currentBingoAudio.pause();
+      currentBingoAudio.currentTime = 0;
+    }
+    const candidates = [
+      "assets/audio/bingo.mp3",
+      "assets/audio/BINGO.mp3",
+      "assets/audio/bingo.wav",
+      "assets/audio/bingo.m4a",
+      "assets/audio/bingo.ogg"
+    ];
+    let candidateIndex = 0;
+    const audio = new Audio();
+    audio.preload = "auto";
+    audio.onerror = () => {
+      candidateIndex++;
+      if (candidateIndex < candidates.length) {
+        audio.src = candidates[candidateIndex];
+        audio.play().catch(() => {});
+      }
+    };
+    audio.src = candidates[0];
+    currentBingoAudio = audio;
+    audio.play().catch(() => {});
+  } catch (err) {
+    // Graceful ignore
+  }
+}
+
+let currentNopeAudio = null;
+function playNopeVoice() {
+  if (!soundEffectsEnabled) return;
+  try {
+    if (currentNopeAudio) {
+      currentNopeAudio.pause();
+      currentNopeAudio.currentTime = 0;
+    }
+    const candidates = [
+      "assets/audio/nop.m4a",
+      "assets/audio/nop.mp3",
+      "assets/audio/nop.wav",
+      "assets/audio/nope.m4a",
+      "assets/audio/nope.mp3"
+    ];
+    let candidateIndex = 0;
+    const audio = new Audio();
+    audio.preload = "auto";
+    audio.onerror = () => {
+      candidateIndex++;
+      if (candidateIndex < candidates.length) {
+        audio.src = candidates[candidateIndex];
+        audio.play().catch(() => {});
+      }
+    };
+    audio.src = candidates[0];
+    currentNopeAudio = audio;
+    audio.play().catch(() => {});
+  } catch (err) {
+    // Graceful ignore
   }
 }
 
@@ -1923,6 +1999,7 @@ function claimBingo() {
     }
   }
   if (!kind) {
+    playNopeVoice();
     toast("FALSE CLAIM", "lose");
     $("bingo-btn").disabled = true;
     return;
