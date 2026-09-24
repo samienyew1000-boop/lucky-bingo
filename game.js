@@ -939,6 +939,34 @@ function handleAutoMarkToggle(event) {
   setAutoMarking(event.currentTarget.checked, true);
 }
 
+function updateVoiceToggleUI() {
+  const btn = $("voice-toggle");
+  if (!btn) return;
+  btn.classList.toggle("is-active", soundEffectsEnabled);
+  btn.classList.toggle("is-muted", !soundEffectsEnabled);
+  btn.setAttribute("aria-pressed", soundEffectsEnabled ? "true" : "false");
+  btn.setAttribute("title", soundEffectsEnabled ? "Voice: ON (tap to mute)" : "Voice: OFF (tap to unmute)");
+}
+
+function handleVoiceToggle() {
+  soundEffectsEnabled = !soundEffectsEnabled;
+  localStorage.setItem("lucky-bingo-sound-enabled", soundEffectsEnabled ? "1" : "0");
+  updateVoiceToggleUI();
+  const settingToggle = $("mobile-sound-toggle");
+  if (settingToggle) settingToggle.checked = soundEffectsEnabled;
+  toast(soundEffectsEnabled ? "VOICE ON" : "VOICE MUTED", soundEffectsEnabled ? "win" : "lose");
+  if (!soundEffectsEnabled) {
+    if (currentCallAudio) {
+      currentCallAudio.pause();
+      currentCallAudio.currentTime = 0;
+    }
+    if (currentBingoAudio) {
+      currentBingoAudio.pause();
+      currentBingoAudio.currentTime = 0;
+    }
+  }
+}
+
 function setGameWaitingState(waiting) {
   gameWaiting = waiting;
   views.game.classList.toggle("is-game-waiting", waiting);
@@ -2311,6 +2339,11 @@ function bind() {
     autoToggle.checked = true;
     autoMarkingEnabled = true;
     autoToggle.addEventListener("change", handleAutoMarkToggle);
+  }
+  const voiceToggle = $("voice-toggle");
+  if (voiceToggle) {
+    voiceToggle.addEventListener("click", handleVoiceToggle);
+    updateVoiceToggleUI();
   }
   $("balance-trigger").addEventListener("click", () => openWallet("deposit"));
   $("close-wallet").addEventListener("click", closeWallet);
