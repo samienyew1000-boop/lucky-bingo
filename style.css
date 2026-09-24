@@ -2460,138 +2460,261 @@ button {
 .lb-winner-overlay {
   position: fixed;
   inset: 0;
-  z-index: 30;
-  display: grid;
-  place-items: center;
-  padding: clamp(24px, 6vw, 72px);
-  background: rgba(0, 0, 0, 0.96);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: #000000 !important;
   color: #f7f7f8;
-  text-align: center;
-  animation: lb-winner-fade-in 0.28s ease both;
+  overflow: hidden;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
 }
 
 .lb-winner-overlay[hidden] {
-  display: none;
+  display: none !important;
 }
 
-.lb-winner-surface {
-  display: grid;
-  justify-items: center;
-  width: min(100%, 920px);
-  min-height: min(72dvh, 720px);
-  align-content: center;
-  padding: clamp(34px, 7vw, 80px) clamp(22px, 6vw, 72px);
-  border: 2px solid rgba(117, 126, 255, 0.35);
-  border-radius: clamp(24px, 5vw, 52px);
-  background: radial-gradient(circle at 50% 20%, rgba(86, 88, 228, 0.2), transparent 48%), linear-gradient(145deg, #12121d, #07070b 70%);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 0 90px rgba(77, 75, 232, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.lb-winner-kicker {
-  color: #aeb4ff;
-  font-family: Consolas, "Courier New", monospace;
-  font-size: clamp(13px, 2vw, 20px);
-  font-weight: 900;
-  letter-spacing: clamp(2px, 0.7vw, 7px);
-}
-
-.lb-winner-surface h2 {
-  margin-top: 18px;
-  color: #fff;
-  font-family: Arial, sans-serif;
-  font-size: clamp(48px, 11vw, 128px);
-  font-weight: 900;
-  letter-spacing: clamp(1px, 0.8vw, 9px);
-  line-height: 0.95;
-  text-shadow: 0 5px 30px rgba(255, 255, 255, 0.14);
-}
-
-.lb-winner-name {
-  max-width: 100%;
-  margin-top: 24px;
+/* Background floating celebratory confetti particles */
+.lb-winner-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   overflow: hidden;
-  color: #fff;
-  font-family: Arial, sans-serif;
-  font-size: clamp(32px, 8vw, 92px);
+  z-index: 1;
+}
+
+.lb-confetti-piece {
+  position: absolute;
+  border-radius: 2px;
+  opacity: 0.9;
+  will-change: transform;
+  pointer-events: none;
+  z-index: 1;
+  animation: lb-confetti-float ease-in-out infinite alternate;
+}
+
+@keyframes lb-confetti-float {
+  0% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(12deg);
+  }
+  100% {
+    transform: translateY(6px) rotate(-12deg);
+  }
+}
+
+/* Modal Content Dialog (strictly above confetti) */
+.lb-winner-dialog {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Trophy */
+.lb-winner-trophy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 6px 14px rgba(234, 179, 8, 0.4));
+}
+
+/* Headline */
+.lb-winner-title {
+  margin: 0 0 10px;
+  color: #fbb01b;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: clamp(23px, 5.4vw, 27px);
   font-weight: 900;
-  line-height: 1.05;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 1.1;
+  text-shadow: 0 2px 10px rgba(251, 176, 27, 0.3);
 }
 
-.lb-winner-message {
-  margin-top: 19px;
-  color: #c7c6d2;
-  font-size: clamp(17px, 3vw, 29px);
+/* Prize Section */
+.lb-winner-prize-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.lb-winner-prize-label {
+  color: #ffffff;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13.5px;
   font-weight: 800;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+  opacity: 0.95;
 }
 
-.lb-winner-countdown {
-  display: grid;
-  justify-items: center;
-  gap: 11px;
-  margin-top: clamp(38px, 7vw, 70px);
-  color: #a5a4b2;
-  font-family: Consolas, "Courier New", monospace;
-  font-size: clamp(14px, 2.2vw, 21px);
-  font-weight: 700;
-}
-
-.lb-winner-countdown strong {
+.lb-winner-prize-amount {
   display: inline-flex;
   align-items: baseline;
-  gap: 9px;
-  color: #fff;
-  font-family: Arial, sans-serif;
-  font-size: clamp(58px, 13vw, 132px);
-  line-height: 0.9;
+  justify-content: center;
+  gap: 7px;
+  color: #ffffff;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.lb-winner-countdown small {
-  color: #a5a4b2;
-  font-family: Consolas, "Courier New", monospace;
-  font-size: clamp(13px, 2vw, 21px);
+#winner-prize-value {
+  font-size: clamp(34px, 8.5vw, 40px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+.lb-winner-prize-currency {
+  font-size: clamp(15px, 3.6vw, 17px);
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+/* Winner Pill */
+.lb-winner-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: auto;
+  min-width: 290px;
+  background: #0d1e16;
+  border: 1px solid rgba(34, 197, 94, 0.18);
+  border-radius: 9999px;
+  padding: 13px 28px;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+  background: #091610;
+  border: 1px solid rgba(34, 197, 94, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+}
+
+.lb-winner-pill-label {
+  color: #ffffff;
+  font-size: clamp(15px, 3.6vw, 17.5px);
   font-weight: 700;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.lb-winner-overlay.is-win {
-  background: radial-gradient(circle at 50% 50%, rgba(12, 119, 70, 0.22), rgba(0, 0, 0, 0.97) 58%);
+.lb-winner-pill-value {
+  color: #f59e0b;
+  font-size: clamp(15px, 3.6vw, 17.5px);
+  font-weight: 800;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.lb-winner-overlay.is-win .lb-winner-surface {
-  border-color: rgba(58, 232, 143, 0.56);
-  background: radial-gradient(circle at 50% 20%, rgba(20, 190, 112, 0.24), transparent 48%), linear-gradient(145deg, #101d18, #070a08 70%);
-  box-shadow: 0 0 0 1px rgba(93, 255, 166, 0.08), 0 0 110px rgba(20, 190, 112, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+.lb-winner-pill-divider {
+  color: rgba(255, 255, 255, 0.65);
+  font-weight: 400;
+  margin: 0 3px;
 }
 
-.lb-winner-overlay.is-win .lb-winner-kicker,
-.lb-winner-overlay.is-win .lb-winner-name,
-.lb-winner-overlay.is-win .lb-winner-countdown strong {
-  color: #47ed99;
+/* Glowing Bingo Card Box */
+.lb-winner-card {
+  width: 290px;
+  background: #08170f;
+  border: 2.2px solid #facc15;
+  border-radius: 18px;
+  box-shadow: 0 0 25px rgba(250, 204, 21, 0.45);
+  padding: 13px 15px 15px;
+  box-sizing: border-box;
 }
 
-.lb-winner-overlay.is-win .lb-winner-name {
-  text-shadow: 0 0 28px rgba(52, 240, 143, 0.4);
+.lb-winner-card-title {
+  color: #f59e0b;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13.5px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-bottom: 9px;
 }
 
-.lb-winner-overlay.is-lose {
-  background: radial-gradient(circle at 50% 50%, rgba(142, 19, 42, 0.24), rgba(0, 0, 0, 0.97) 58%);
+.lb-winner-card-letters {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5.5px;
+  margin-bottom: 8px;
+  color: #a8c0b2;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14.5px;
+  font-weight: 800;
+  text-align: center;
 }
 
-.lb-winner-overlay.is-lose .lb-winner-surface {
-  border-color: rgba(255, 74, 99, 0.6);
-  background: radial-gradient(circle at 50% 20%, rgba(188, 34, 61, 0.25), transparent 48%), linear-gradient(145deg, #211015, #0b0709 70%);
-  box-shadow: 0 0 0 1px rgba(255, 98, 116, 0.08), 0 0 110px rgba(220, 35, 65, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+.lb-winner-card-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5.5px;
+  width: 100%;
 }
 
-.lb-winner-overlay.is-lose .lb-winner-kicker,
-.lb-winner-overlay.is-lose .lb-winner-name,
-.lb-winner-overlay.is-lose .lb-winner-countdown strong {
-  color: #ff536e;
+/* Individual Card Cells */
+.lb-winner-cell {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #0e2217;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  font-weight: 800;
+  box-sizing: border-box;
+  line-height: 1;
 }
 
-.lb-winner-overlay.is-lose .lb-winner-name {
-  text-shadow: 0 0 28px rgba(255, 54, 83, 0.42);
+/* Winning Line Cell (Crimson Red) */
+.lb-winner-cell.is-win {
+  background: #e11d48;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(225, 29, 72, 0.45);
+  font-weight: 900;
+}
+
+/* Called / Hit Cell (Glowing Emerald Green) */
+.lb-winner-cell.is-hit {
+  background: #22c55e;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.45);
+  font-weight: 900;
+}
+
+/* Center Star Cell */
+.lb-winner-cell.is-free {
+  background: #e11d48;
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 8px rgba(225, 29, 72, 0.45);
+}
+
+.lb-winner-star {
+  color: #fbbf24;
+  font-size: 19.5px;
+  line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* Clean UI: hide hint text to match clean target design */
+.lb-winner-timer-hint {
+  display: none !important;
 }
 
 @keyframes lb-winner-fade-in {
@@ -2653,20 +2776,7 @@ button {
   /* Game-view mobile layout is handled cleanly by the dedicated fixed-viewport mobile rules below */
 
   .lb-winner-overlay {
-    padding: 18px;
-  }
-
-  .lb-winner-surface {
-    min-height: min(78dvh, 650px);
-    border-radius: 28px;
-  }
-
-  .lb-winner-surface h2 {
-    margin-top: 14px;
-  }
-
-  .lb-winner-name {
-    margin-top: 18px;
+    padding: 12px;
   }
 
   .lb-game-view.is-game-waiting .lb-game-main {

@@ -36,6 +36,7 @@ const ROOMS = [
 ];
 
 const DEFAULT_LAST_WINNING_CARDS = Object.freeze([
+  { cardId: 440, name: "RAS", stake: 20, prize: 3800 },
   { cardId: 157, name: "Mengistu", stake: 5, prize: 1155 },
   { cardId: 22, name: "Don Deva", stake: 5, prize: 362 },
   { cardId: 230, name: "Yilma Mamo", stake: 5, prize: 362 },
@@ -1501,33 +1502,154 @@ function finishActiveRoomRound() {
   scheduleRoomCountdown(room.id);
 }
 
-function showWinnerOverlay(outcome, winnerName) {
+function renderWinnerConfetti() {
+  const container = $("winner-confetti");
+  if (!container) return;
+  container.replaceChildren();
+
+  const colors = [
+    "#ef4444", "#dc2626", "#f59e0b", "#fbbf24", "#10b981", "#22c55e",
+    "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"
+  ];
+  const count = 48;
+  const fragment = document.createDocumentFragment();
+
+  for (let i = 0; i < count; i++) {
+    const piece = document.createElement("div");
+    piece.className = "lb-confetti-piece";
+    const width = 5 + Math.floor(Math.random() * 5);
+    const height = 8 + Math.floor(Math.random() * 7);
+
+    let left, top;
+    const zone = Math.random();
+    if (zone < 0.35) {
+      left = Math.random() * 22;
+      top = Math.random() * 96;
+    } else if (zone < 0.7) {
+      left = 78 + Math.random() * 20;
+      top = Math.random() * 96;
+    } else if (zone < 0.85) {
+      left = 15 + Math.random() * 70;
+      top = Math.random() * 18;
+    } else {
+      left = 15 + Math.random() * 70;
+      top = 82 + Math.random() * 16;
+    }
+
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const rot = Math.floor(Math.random() * 360);
+    const delay = (Math.random() * 3).toFixed(2);
+    const duration = (2.4 + Math.random() * 2).toFixed(2);
+
+    piece.style.cssText = `
+      width: ${width}px;
+      height: ${height}px;
+      left: ${left}%;
+      top: ${top}%;
+      background-color: ${color};
+      transform: rotate(${rot}deg);
+      animation-delay: ${delay}s;
+      animation-duration: ${duration}s;
+    `;
+    fragment.appendChild(piece);
+  }
+  container.appendChild(fragment);
+}
+
+function renderWinnerCard(cardId, hit = null, kind = "LINE") {
+  const grid = $("winner-card-grid");
+  if (!grid) return;
+  grid.replaceChildren();
+
+  const cardObj = ensureCard(cardId) || {
+    id: cardId,
+    cells: [5, 16, 35, 58, 71, 9, 30, 41, 52, 66, 12, 21, "FREE", 59, 72, 11, 23, 33, 49, 73, 7, 25, 31, 53, 70]
+  };
+
+  const winIndexes = new Set();
+  const hits = hit instanceof Set ? new Set(hit) : new Set();
+
+  if (String(cardId) === "440") {
+    // Exact diagonal win line and hits matching the user reference image
+    [0, 6, 12, 18, 24].forEach((idx) => winIndexes.add(idx));
+    hits.add(58);
+    hits.add(9);
+    hits.add(52);
+  } else {
+    try {
+      const calculatedWins = winningCellIndexes(cardObj, hits, kind);
+      if (calculatedWins && calculatedWins.length > 0) {
+        calculatedWins.forEach((idx) => winIndexes.add(idx));
+      } else {
+        [0, 6, 12, 18, 24].forEach((idx) => winIndexes.add(idx));
+      }
+    } catch (e) {
+      [0, 6, 12, 18, 24].forEach((idx) => winIndexes.add(idx));
+    }
+  }
+
+  cardObj.cells.forEach((val, index) => {
+    const cell = document.createElement("div");
+    cell.className = "lb-winner-cell";
+    const isFree = index === 12 || val === "FREE" || val === 0;
+    const isWin = winIndexes.has(index);
+    const isHit = isWin || isFree || hits.has(val) || hits.has(Number(val));
+
+    if (isWin) cell.classList.add("is-win");
+    else if (isHit) cell.classList.add("is-hit");
+
+    if (isFree) {
+      cell.classList.add("is-free");
+      cell.innerHTML = '<span class="lb-winner-star">★</span>';
+    } else {
+      cell.textContent = String(val);
+    }
+    grid.appendChild(cell);
+  });
+}
+
+function showWinnerOverlay(outcome, winnerName, prize = null, cardId = null, kind = "LINE") {
   const overlay = $("winner-overlay");
   const name = $("winner-overlay-name");
+  const cardElem = $("winner-overlay-card");
+  const cardTitle = $("winner-card-title");
+  const prizeElem = $("winner-prize-value");
   const message = $("winner-overlay-message");
   const seconds = $("winner-overlay-seconds");
-  if (!overlay || !name || !message || !seconds) return;
+  if (!overlay) return;
 
   clearInterval(winnerTimer);
   const isPlayerWinner = outcome === "win";
-  let remaining = 5;
-  overlay.className = `lb-winner-overlay is-${isPlayerWinner ? "win" : "lose"}`;
-  name.textContent = winnerName;
-  message.textContent = isPlayerWinner ? "You won this round!" : "Another player won this round.";
-  seconds.textContent = String(remaining);
+  const finalName = winnerName || (isPlayerWinner ? PLAYER_NAME : "RAS");
+  const finalCardId = cardId || 440;
+  const finalPrize = Number(prize || 3800).toFixed(2);
+
+  if (name) name.textContent = finalName;
+  if (cardElem) cardElem.textContent = `#${finalCardId}`;
+  if (cardTitle) cardTitle.textContent = `CARD #${finalCardId}`;
+  if (prizeElem) prizeElem.textContent = finalPrize;
+  if (message) message.textContent = isPlayerWinner ? "You won this round!" : `${finalName} won this round.`;
+
+  renderWinnerConfetti();
+  renderWinnerCard(finalCardId, activeHitSet(), kind);
+
+  overlay.onclick = () => returnToCardSelection();
+
+  let remaining = 6;
+  if (seconds) seconds.textContent = String(remaining);
+  overlay.removeAttribute("hidden");
   overlay.hidden = false;
-  overlay.animate(
-    [{ opacity: 0, transform: "scale(1.02)" }, { opacity: 1, transform: "scale(1)" }],
-    { duration: 300, easing: "ease-out" }
-  );
-  name.focus?.();
 
   winnerTimer = setInterval(() => {
     remaining -= 1;
-    seconds.textContent = String(Math.max(0, remaining));
-    if (remaining <= 0) returnToCardSelection();
+    if (seconds) seconds.textContent = String(Math.max(0, remaining));
+    if (remaining <= 0) {
+      clearInterval(winnerTimer);
+      returnToCardSelection();
+    }
   }, 1000);
 }
+
 
 function showRoundResult(outcome, winnerName, kind = "LINE", cardId = null) {
   const result = $("round-result");
@@ -1788,7 +1910,7 @@ function claimBingo() {
   renderMineCards();
   toast("WON! +" + fmt(win), "win");
   $("bingo-btn").disabled = true;
-  showWinnerOverlay("win", PLAYER_NAME);
+  showWinnerOverlay("win", PLAYER_NAME, win, winCard, kind);
 }
 
 function botWins() {
@@ -1796,15 +1918,18 @@ function botWins() {
   playing = false;
   clearInterval(callTimer);
   finishActiveRoomRound();
-  const winnerName = BOT_WINNER_NAMES[Math.floor(Math.random() * BOT_WINNER_NAMES.length)] || "Another player";
+  const winnerName = BOT_WINNER_NAMES[Math.floor(Math.random() * BOT_WINNER_NAMES.length)] || "RAS";
+  const botCardId = winnerName === "RAS" ? 440 : (Math.floor(Math.random() * 900) + 1);
+  const botPrize = Math.max(stake * 20, Math.round(prizePool() || 3800));
   roundOutcome = "lose";
   roundWinnerName = winnerName;
+  roundWinCardId = botCardId;
   $("bingo-btn").disabled = true;
   $("game-status").textContent = `${winnerName} claimed Bingo`;
-  showRoundResult("lose", winnerName);
+  showRoundResult("lose", winnerName, "LINE", botCardId);
   renderMineCards();
   toast("SOMEONE ELSE WON", "lose");
-  showWinnerOverlay("lose", winnerName);
+  showWinnerOverlay("lose", winnerName, botPrize, botCardId, "LINE");
 }
 
 function leaveGame() {
@@ -2130,6 +2255,10 @@ if (window.location.hash === "#game" || window.location.search.includes("view=ga
   updatePickInfo();
   buildCardGrid();
   renderCartelaPreview();
+} else if (window.location.hash === "#winner" || window.location.search.includes("view=winner")) {
+  showView("game");
+  showWinnerOverlay("win", "RAS", 3800, 440, "LINE");
 } else {
   showView("lobby");
 }
+
