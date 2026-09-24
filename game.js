@@ -1783,7 +1783,10 @@ function renderMineCards() {
       el.className = "lb-card";
       el.dataset.id = String(id);
       el.innerHTML = `
-        <div class="lb-mine-card-tag">Card #${id}</div>
+        <div class="lb-mine-card-header">
+          <span class="lb-mine-card-title">YOUR CARD (#${id})</span>
+          <span class="lb-mine-card-status">LIVE</span>
+        </div>
         <div class="lb-binghead">${LETTERS.map((letter) => `<span>${letter}</span>`).join("")}</div>
         <div class="lb-cells"></div>
       `;
@@ -2380,24 +2383,34 @@ renderBalance();
 bind();
 if (startingBonusAwarded > 0) toast(`STARTING BONUS +${fmt(startingBonusAwarded)} ETB`, "win");
 if (window.location.hash === "#game" || window.location.search.includes("view=game")) {
-  enterRoom("10");
+  activeRoomId = "10";
+  stake = 10;
+  clearInterval(pickTimer);
+  clearInterval(callTimer);
+  gameWaiting = false;
   selected.clear();
-  selected.add(97);
-  selected.add(99);
+  const urlParams = new URLSearchParams(window.location.search);
+  const cardParam = urlParams.get("card");
+  if (cardParam) {
+    cardParam.split(",").map(Number).filter(Boolean).forEach((id) => selected.add(id));
+  } else {
+    selected.add(10);
+  }
   entryCharged = true;
   beginLiveGame();
-  called = [69];
-  callPool = callPool.filter((n) => n !== 69);
+  called = [51, 2];
+  callPool = callPool.filter((n) => n !== 2 && n !== 51);
   paintBoard();
   const ballEl = $("call-ball");
   if (ballEl) {
-    ballEl.textContent = "69";
-    ballEl.dataset.letter = "O";
+    ballEl.textContent = "2";
+    ballEl.dataset.letter = "B";
   }
-  $("call-letter").textContent = "O";
-  $("call-count").textContent = "1";
+  $("call-letter").textContent = "B";
+  $("call-count").textContent = "2";
   updateRecentCalls();
   renderMineCards();
+  if ($("toast")) $("toast").hidden = true;
 } else if (window.location.hash === "#pick" || window.location.search.includes("view=pick")) {
   showView("pick");
   stake = 10;

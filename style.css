@@ -4245,7 +4245,7 @@ body.is-lobby-active #view-lobby {
   min-height: 0 !important;
   overflow: hidden !important;
   padding: 0 !important;
-  margin: 2px 0 !important;
+  margin: 0 !important;
   border: none !important;
   border-radius: 0 !important;
   background: transparent !important;
@@ -4255,56 +4255,70 @@ body.is-lobby-active #view-lobby {
 .lb-mine {
   display: flex !important;
   flex-direction: column !important;
-  gap: 5px !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
   flex: 1 1 auto !important;
   min-height: 0 !important;
-  justify-content: space-evenly !important;
   overflow: hidden !important;
-  padding: 0 !important;
-}
-
-.lb-mine > .lb-card:only-child {
-  max-width: 220px !important;
-  margin: auto !important;
-  width: 100% !important;
+  padding: 10px 0 0 0 !important;
+  box-sizing: border-box !important;
 }
 
 .lb-card {
   display: flex !important;
   flex-direction: column !important;
-  border: 1px solid #1c1b27 !important;
-  border-radius: 10px !important;
-  background: #0c0b11 !important;
-  padding: 3px 4px 4px 4px !important;
+  border: 1px solid #161c28 !important;
+  border-radius: 14px !important;
+  background: #0d1117 !important;
+  padding: 9px 10px 11px 10px !important;
   box-sizing: border-box !important;
-  flex: 1 1 auto !important;
-  min-height: 0 !important;
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  max-width: 295px !important;
+  margin: 0 auto !important;
   overflow: hidden !important;
 }
 
-.lb-mine-card-tag {
-  display: block !important;
-  margin: 0 auto 2px !important;
-  padding: 1px 8px !important;
-  border-radius: 999px !important;
-  background: #0e0e18 !important;
-  border: 1px solid #232238 !important;
-  color: #818cf8 !important;
-  font-size: 9.5px !important;
-  font-weight: 700 !important;
-  width: fit-content !important;
-  text-align: center !important;
-  line-height: 1.2 !important;
+.lb-mine-card-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  padding: 0 2px 7px 2px !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  box-sizing: border-box !important;
+}
+
+.lb-mine-card-title {
+  font-family: Arial, -apple-system, BlinkMacSystemFont, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  color: #8c9ba5 !important;
+  letter-spacing: 0.6px !important;
+  text-transform: uppercase !important;
+  line-height: 1 !important;
+}
+
+.lb-mine-card-status {
+  font-family: Arial, -apple-system, BlinkMacSystemFont, sans-serif !important;
+  font-size: 11.5px !important;
+  font-weight: 800 !important;
+  color: #10b981 !important;
+  letter-spacing: 0.6px !important;
+  text-transform: uppercase !important;
+  line-height: 1 !important;
 }
 
 .lb-binghead {
   display: grid !important;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-  gap: 2.5px !important;
-  margin-bottom: 3px !important;
-  height: 20px !important;
-  min-height: 20px !important;
-  max-height: 20px !important;
+  grid-template-columns: repeat(5, 1fr) !important;
+  gap: 4px !important;
+  margin-bottom: 5px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
   flex: 0 0 auto !important;
 }
 
@@ -4312,33 +4326,30 @@ body.is-lobby-active #view-lobby {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  height: 20px !important;
-  min-height: 0 !important;
-  max-height: 20px !important;
-  border-radius: 5px !important;
+  height: 32px !important;
+  border-radius: 7px !important;
   color: #ffffff !important;
   font-family: Arial, -apple-system, BlinkMacSystemFont, sans-serif !important;
   font-weight: 900 !important;
-  font-size: 12px !important;
+  font-size: 15px !important;
   line-height: 1 !important;
   text-align: center !important;
   box-sizing: border-box !important;
-  overflow: visible !important;
 }
 
-.lb-binghead span:nth-child(1) { background: #5d6bf8 !important; }
-.lb-binghead span:nth-child(2) { background: #ab5cf7 !important; }
+.lb-binghead span:nth-child(1) { background: #5e6bfb !important; }
+.lb-binghead span:nth-child(2) { background: #a855f7 !important; }
 .lb-binghead span:nth-child(3) { background: #f43f5e !important; }
 .lb-binghead span:nth-child(4) { background: #10b981 !important; }
 .lb-binghead span:nth-child(5) { background: #f97316 !important; }
 
 .lb-cells {
   display: grid !important;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-  grid-template-rows: repeat(5, minmax(0, 1fr)) !important;
-  gap: 2.5px !important;
-  flex: 1 1 auto !important;
-  min-height: 0 !important;
+  grid-template-columns: repeat(5, 1fr) !important;
+  gap: 4px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  flex: 0 0 auto !important;
 }
 
 .lb-cell {
@@ -4346,31 +4357,74 @@ body.is-lobby-active #view-lobby {
   align-items: center !important;
   justify-content: center !important;
   aspect-ratio: 1 !important;
+  width: 100% !important;
   min-width: 0 !important;
-  min-height: 0 !important;
-  background: #07070a !important;
-  border: 1px solid #1a1924 !important;
-  border-radius: 4px !important;
+  background: #121620 !important;
+  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-radius: 7px !important;
   color: #ffffff !important;
-  font-size: 11px !important;
-  font-weight: 700 !important;
+  font-family: Arial, -apple-system, BlinkMacSystemFont, sans-serif !important;
+  font-size: 17px !important;
+  font-weight: 800 !important;
   line-height: 1 !important;
   user-select: none !important;
   box-sizing: border-box !important;
+  cursor: default !important;
 }
 
 .lb-cell.is-free {
-  background: #5d68f5 !important;
-  border-color: #5d68f5 !important;
+  background: #5e6bfb !important;
+  border-color: #5e6bfb !important;
   color: #ffffff !important;
-  font-size: 13px !important;
+  font-size: 19px !important;
 }
 
 .lb-cell.is-hit:not(.is-free) {
-  background: linear-gradient(135deg, #7c88ff, #4f46e5) !important;
-  border-color: #818cf8 !important;
+  background: #5e6bfb !important;
+  border-color: #707dfd !important;
   color: #ffffff !important;
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.6) !important;
+  box-shadow: 0 0 10px rgba(94, 107, 251, 0.55) !important;
+}
+
+.lb-cell.is-callable {
+  animation: lb-pulse-cell 1.2s infinite alternate !important;
+  border-color: #f59e0b !important;
+  cursor: pointer !important;
+}
+
+/* If 2 cards in .lb-mine */
+.lb-mine > .lb-card:not(:only-child) {
+  max-width: 215px !important;
+  padding: 4px 6px 6px 6px !important;
+  border-radius: 10px !important;
+}
+.lb-mine > .lb-card:not(:only-child) .lb-mine-card-header {
+  padding: 0 1px 2px 1px !important;
+}
+.lb-mine > .lb-card:not(:only-child) .lb-mine-card-title {
+  font-size: 9.5px !important;
+}
+.lb-mine > .lb-card:not(:only-child) .lb-mine-card-status {
+  font-size: 9px !important;
+}
+.lb-mine > .lb-card:not(:only-child) .lb-binghead {
+  gap: 2.5px !important;
+  margin-bottom: 3px !important;
+}
+.lb-mine > .lb-card:not(:only-child) .lb-binghead span {
+  height: 20px !important;
+  font-size: 11px !important;
+  border-radius: 4px !important;
+}
+.lb-mine > .lb-card:not(:only-child) .lb-cells {
+  gap: 2.5px !important;
+}
+.lb-mine > .lb-card:not(:only-child) .lb-cell {
+  font-size: 11.5px !important;
+  border-radius: 4px !important;
+}
+.lb-mine > .lb-card:not(:only-child) .lb-cell.is-free {
+  font-size: 13px !important;
 }
 
 /* 4D. Action Button: Full-width BINGO button */
