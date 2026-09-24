@@ -74,6 +74,8 @@ let cardsLoadError = false;
 let called = [];
 let manualMarked = new Set();
 let autoMarkingEnabled = true;
+let soundEffectsEnabled = localStorage.getItem("lucky-bingo-sound-enabled") !== "0";
+let currentCallAudio = null;
 let callPool = [];
 let callTimer = null;
 let pickTimer = null;
@@ -662,7 +664,7 @@ function renderMobilePanelContent(tab) {
         <div>
           <span>Sound effects</span>
           <label class="lb-mobile-switch">
-            <input type="checkbox" checked id="mobile-sound-toggle" />
+            <input type="checkbox" ${soundEffectsEnabled ? "checked" : ""} id="mobile-sound-toggle" />
             <i></i>
           </label>
         </div>
@@ -677,6 +679,10 @@ function renderMobilePanelContent(tab) {
       </div>
     `;
     $("mobile-auto-mark")?.addEventListener("change", (event) => setAutoMarking(event.currentTarget.checked, true));
+    $("mobile-sound-toggle")?.addEventListener("change", (event) => {
+      soundEffectsEnabled = event.currentTarget.checked;
+      localStorage.setItem("lucky-bingo-sound-enabled", soundEffectsEnabled ? "1" : "0");
+    });
     return;
   }
 
@@ -1794,6 +1800,43 @@ function toggleManualMark(value) {
     : `${wasMarked ? "Unmarked" : "Marked"} ${letterFor(value)}-${value}`;
 }
 
+function playCallVoice(number, letter) {
+  if (!soundEffectsEnabled) return;
+  try {
+    if (currentCallAudio) {
+      currentCallAudio.pause();
+      currentCallAudio.currentTime = 0;
+    }
+    const candidates = [
+      `assets/audio/${letter}${number}.mp3`,
+      `assets/audio/${number}.mp3`,
+      `assets/audio/${letter}-${number}.mp3`,
+      `assets/audio/${letter.toLowerCase()}${number}.mp3`,
+      `assets/audio/${letter}${number}.wav`,
+      `assets/audio/${number}.wav`,
+      `assets/audio/${letter}${number}.m4a`,
+      `assets/audio/${number}.m4a`,
+      `assets/audio/${letter}${number}.ogg`,
+      `assets/audio/${number}.ogg`
+    ];
+    let candidateIndex = 0;
+    const audio = new Audio();
+    audio.preload = "auto";
+    audio.onerror = () => {
+      candidateIndex++;
+      if (candidateIndex < candidates.length) {
+        audio.src = candidates[candidateIndex];
+        audio.play().catch(() => {});
+      }
+    };
+    audio.src = candidates[0];
+    currentCallAudio = audio;
+    audio.play().catch(() => {});
+  } catch (err) {
+    // Graceful ignore if audio permissions or files are unavailable
+  }
+}
+
 function nextCall() {
   if (!playing || !callPool.length) {
     clearInterval(callTimer);
@@ -1822,6 +1865,7 @@ function nextCall() {
   updateGameSummary();
   paintBoard();
   renderMineCards();
+  playCallVoice(n, letter);
 
   const ready = updateBingoButton();
   if (ready && !claimed) {
