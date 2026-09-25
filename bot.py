@@ -14,6 +14,8 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     WebAppInfo,
+    BotCommand,
+    MenuButtonCommands,
 )
 from telegram.ext import (
     Application,
@@ -133,6 +135,93 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /deposit command."""
+    text = (
+        "💳 *Deposit Money*\n\n"
+        "To deposit funds into your Lucky Bingo account, choose your payment method in the game portal."
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Deposit in Game 🎮", web_app=WebAppInfo(url=WEB_APP_URL))]
+    ])
+    if update.effective_message:
+        await update.effective_message.reply_text(text=text, reply_markup=kb, parse_mode="Markdown")
+
+
+async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /withdraw command."""
+    text = (
+        "🏧 *Withdraw Money*\n\n"
+        "Submit your payout request directly in the Web App to receive your earnings swiftly."
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Withdraw in Game 🎮", web_app=WebAppInfo(url=WEB_APP_URL))]
+    ])
+    if update.effective_message:
+        await update.effective_message.reply_text(text=text, reply_markup=kb, parse_mode="Markdown")
+
+
+async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /balance command."""
+    text = (
+        "💰 *Check Balance*\n\n"
+        "• *Main Balance:* 0.00 ETB\n"
+        "• *Bonus Balance:* 0.00 ETB\n\n"
+        "Launch the game to view live balance and stats!"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Play Games 🎮", web_app=WebAppInfo(url=WEB_APP_URL))]
+    ])
+    if update.effective_message:
+        await update.effective_message.reply_text(text=text, reply_markup=kb, parse_mode="Markdown")
+
+
+async def register_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /register command."""
+    user = update.effective_user
+    name = user.first_name if user else "Player"
+    text = (
+        f"📝 *Register New Account*\n\n"
+        f"Welcome, {name}!\n"
+        f"Your Telegram ID (`{user.id}`) is already connected as your player account.\n\n"
+        f"Tap below to launch Lucky Bingo and claim your starting bonus!"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Play Games 🎮", web_app=WebAppInfo(url=WEB_APP_URL))]
+    ])
+    if update.effective_message:
+        await update.effective_message.reply_text(text=text, reply_markup=kb, parse_mode="Markdown")
+
+
+async def transfer_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /transfer command."""
+    text = (
+        "↔️ *Send Money to Friend*\n\n"
+        "Transfer balance instantly to another player with 0% fee.\n"
+        "Open the game dashboard to initiate a player-to-player transfer."
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Transfer in Game 🎮", web_app=WebAppInfo(url=WEB_APP_URL))]
+    ])
+    if update.effective_message:
+        await update.effective_message.reply_text(text=text, reply_markup=kb, parse_mode="Markdown")
+
+
+async def post_init(application: Application) -> None:
+    """Sets the Telegram bot menu commands and menu button matching reference image."""
+    commands = [
+        BotCommand("start", "Start the bot"),
+        BotCommand("deposit", "Deposit money"),
+        BotCommand("withdraw", "Withdraw money"),
+        BotCommand("balance", "Check Balance"),
+        BotCommand("register", "Register new account"),
+        BotCommand("transfer", "Send money to friend"),
+    ]
+    await application.bot.set_my_commands(commands)
+    await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+    logger.info("Bot commands menu registered successfully.")
+
+
 # ==============================================================================
 # CALLBACK QUERY HANDLERS (Interactive button clicks)
 # ==============================================================================
@@ -205,11 +294,16 @@ def main() -> None:
             "[WARNING] BOT_TOKEN is not set! Please edit BOT_TOKEN in bot.py or set the BOT_TOKEN environment variable."
         )
 
-    # Initialize the Application
-    app = Application.builder().token(BOT_TOKEN).build()
+    # Initialize the Application with post_init to register Telegram Menu Button and commands
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # Register handlers (handles /start, /Start, /help, /menu)
+    # Register command handlers matching menu items
     app.add_handler(CommandHandler(["start", "Start", "help", "menu"], start_command))
+    app.add_handler(CommandHandler(["deposit", "Deposit"], deposit_command))
+    app.add_handler(CommandHandler(["withdraw", "Withdraw"], withdraw_command))
+    app.add_handler(CommandHandler(["balance", "Balance"], balance_command))
+    app.add_handler(CommandHandler(["register", "Register"], register_command))
+    app.add_handler(CommandHandler(["transfer", "Transfer"], transfer_command))
     app.add_handler(CallbackQueryHandler(button_callback))
 
     # Run the bot
