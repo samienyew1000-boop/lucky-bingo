@@ -85,7 +85,7 @@ let roomStatusTimer = null;
 let roomLifecycle = loadRoomLifecycle();
 let lastWinningCards = loadLastWinningCards();
 let activeRoomId = null;
-let pickLeft = DEFAULT_PICK_SECS;
+let pickLeft = null;
 let pickEndsAt = 0;
 let playing = false;
 let gameWaiting = false;
@@ -318,20 +318,44 @@ function roomLifecycleKey(roundKey, cycle) {
   return `${roundKey}:${cycle}`;
 }
 
-function createRoomCountdown(room, now = Date.now(), previousLifecycle = null) {
-  const roundId = String(room.roundId || "");
-  const roundKey = roomRoundKey(room);
+function createRoomOpen(room, now = Date.now(), previousLifecycle = null) {
+  const roundId = String(room?.roundId || ("R-" + Math.floor(1000 + Math.random() * 9000)));
+  const roundKey = room ? roomRoundKey(room) : "waiting:0:0";
   const cycle = Number(previousLifecycle?.cycle || 0) + 1;
   const lifecycle = {
     sourceStatus: "waiting",
     roundId,
     roundKey,
     lifecycleKey: roomLifecycleKey(roundKey, cycle),
-    phase: "countdown",
-    startsAt: now + getPickCountdownSeconds() * 1000,
+    phase: "open",
+    botPlayers: 0,
     cycle,
   };
-  roomLifecycle[String(room.id)] = lifecycle;
+  roomLifecycle[String(room?.id || activeRoomId || "1")] = lifecycle;
+  saveRoomLifecycle();
+  return lifecycle;
+}
+
+function startRoomCountdown(room, now = Date.now(), seconds = null) {
+  const roomKey = String(room?.id || activeRoomId || "1");
+  const lobbyRoom = getLobbyRoom(roomKey) || room;
+  const current = roomLifecycle[roomKey];
+  const roundKey = lobbyRoom ? roomRoundKey(lobbyRoom) : "waiting:0:0";
+  const roundId = lobbyRoom ? String(lobbyRoom.roundId || "") : ("R-" + Math.floor(1000 + Math.random() * 9000));
+  const cycle = Number(current?.cycle || 1);
+  const countdownSecs = seconds || getPickCountdownSeconds() || 15;
+  const startsAt = now + countdownSecs * 1000;
+  const lifecycle = {
+    sourceStatus: "waiting",
+    roundId,
+    roundKey,
+    lifecycleKey: roomLifecycleKey(roundKey, cycle),
+    phase: "countdown",
+    startsAt: startsAt,
+    botPlayers: botPlayers || 2,
+    cycle,
+  };
+  roomLifecycle[roomKey] = lifecycle;
   saveRoomLifecycle();
   return lifecycle;
 }
@@ -344,112 +368,63 @@ function roomDisplayState(room, now = Date.now()) {
   let lifecycle = roomLifecycle[roomKey];
 
   if (sourceStatus === "paused") {
-    const lifecycleKey = roomLifecycleKey(roundKey, "admin");
-    if (!lifecycle || lifecycle.sourceStatus !== sourceStatus || lifecycle.roundKey !== roundKey || lifecycle.phase !== "paused" || lifecycle.lifecycleKey !== lifecycleKey) {
-      lifecycle = { sourceStatus, roundId, roundKey, lifecycleKey, phase: "paused", updatedAt: now };
-      roomLifecycle[roomKey] = lifecycle;
-      saveRoomLifecycle();
-    }
-    return { type: "paused", label: "Paused", ariaLabel: "Game paused", roundKey: lifecycle.lifecycleKey };
+    return { type: "paused", label: "Paused", ariaLabel: "Game paused", roundKey: lifecycle?.lifecycleKey || "paused" };
   }
 
-  // When room has 0 players or is waiting, it displays the countdown and allows Play
-  if (sourceStatus !== "live" || room.players === 0) {
-    if (
-      !lifecycle ||
-      lifecycle.sourceStatus !== "waiting" ||
-      !["countdown"].includes(lifecycle.phase) ||
-      !lifecycle.lifecycleKey ||
-      !Number.isFinite(Number(lifecycle.cycle)) ||
-      (lifecycle.phase === "countdown" && !Number.isFinite(Number(lifecycle.startsAt)))
-    ) {
-      lifecycle = createRoomCountdown(room, now, lifecycle);
-    }
-    const safeLeft = Math.max(0, Math.ceil((Number(lifecycle.startsAt) - now) / 1000));
-    return {
-      type: "countdown",
-      label: formatCountdown(safeLeft),
-      ariaLabel: `Starts in ${formatCountdown(safeLeft)}`,
-      startsAt: lifecycle.startsAt,
-      roundKey: lifecycle.lifecycleKey,
-    };
+  if (sourceStatus === "live") {
+    return { type: "live", label: "In Play", ariaLabel: "Active game in progress", roundKey: lifecycle?.lifecycleKey || "live" };
   }
 
-  const lifecycleKey = roomLifecycleKey(roundKey, "admin");
-  if (!lifecycle || lifecycle.sourceStatus !== sourceStatus || lifecycle.roundKey !== roundKey || lifecycle.phase !== "live" || lifecycle.lifecycleKey !== lifecycleKey) {
-    lifecycle = {
-      sourceStatus,
-      roundId,
-      roundKey,
-      lifecycleKey,
-      phase: "live",
-      startedAt: now,
-      adminControlled: true,
-    };
-    roomLifecycle[roomKey] = lifecycle;
-    saveRoomLifecycle();
-  }
-  return { type: "live", label: "Active game", ariaLabel: "Active game", roundKey: lifecycle.lifecycleKey };
-
-  if (
-    !lifecycle ||
-    lifecycle.sourceStatus !== sourceStatus ||
-    lifecycle.roundKey !== roundKey ||
-    !["countdown", "live"].includes(lifecycle.phase) ||
-    !lifecycle.lifecycleKey ||
-    !Number.isFinite(Number(lifecycle.cycle)) ||
-    (lifecycle.phase === "countdown" && !Number.isFinite(Number(lifecycle.startsAt)))
-  ) {
-    lifecycle = createRoomCountdown(room, now, lifecycle);
+  // If no lifecycle yet, initialize as "open"
+  if (!lifecycle || lifecycle.roundKey !== roundKey) {
+    lifecycle = createRoomOpen(room, now, lifecycle);
   }
 
-  if (lifecycle.phase === "countdown" && now >= Number(lifecycle.startsAt)) {
-    const startedAt = now;
-    lifecycle = {
-      sourceStatus,
-      roundId,
-      roundKey,
-      lifecycleKey: lifecycle.lifecycleKey,
-      phase: "live",
-      startedAt,
-      endsAt: startedAt + ROOM_GAME_MS,
-      cycle: Number(lifecycle.cycle || 0),
-    };
-    roomLifecycle[roomKey] = lifecycle;
-    saveRoomLifecycle();
-  }
-
+  // 1. Live phase: game currently playing
   if (lifecycle.phase === "live") {
-    // Waiting rooms run their own simulated round. Admin-controlled live rooms
-    // stay locked until the admin changes their source status.
-    if (lifecycle.adminControlled) {
-      return { type: "live", label: "Active game", ariaLabel: "Active game", roundKey: lifecycle.lifecycleKey };
+    if (now >= Number(lifecycle.endsAt || 0)) {
+      // Game ended, return room to open for the next round
+      lifecycle = createRoomOpen(room, now, lifecycle);
+    } else {
+      return { type: "live", label: "In Play", ariaLabel: "Active game in progress", roundKey: lifecycle.lifecycleKey };
     }
+  }
 
-    if (!Number.isFinite(Number(lifecycle.endsAt))) {
-      const startedAt = Number.isFinite(Number(lifecycle.startedAt)) ? Number(lifecycle.startedAt) : now;
+  // 2. Countdown phase: >= 2 players picked, counting down to start
+  if (lifecycle.phase === "countdown") {
+    const safeLeft = Math.ceil((Number(lifecycle.startsAt) - now) / 1000);
+    if (safeLeft > 0) {
+      return {
+        type: "countdown",
+        label: formatCountdown(safeLeft),
+        ariaLabel: `Starts in ${formatCountdown(safeLeft)}`,
+        startsAt: lifecycle.startsAt,
+        roundKey: lifecycle.lifecycleKey,
+      };
+    } else {
+      // Countdown ended: transition into live game
       lifecycle = {
-        ...lifecycle,
-        startedAt,
-        endsAt: startedAt + ROOM_GAME_MS,
+        sourceStatus: "waiting",
+        roundId,
+        roundKey,
+        lifecycleKey: lifecycle.lifecycleKey,
+        phase: "live",
+        startedAt: now,
+        endsAt: now + ROOM_GAME_MS,
+        botPlayers: lifecycle.botPlayers || 2,
+        cycle: Number(lifecycle.cycle || 1),
       };
       roomLifecycle[roomKey] = lifecycle;
       saveRoomLifecycle();
-    }
-
-    if (now >= Number(lifecycle.endsAt)) {
-      lifecycle = createRoomCountdown(room, now, lifecycle);
-    } else {
-      return { type: "live", label: "Active game", ariaLabel: "Active game", roundKey: lifecycle.lifecycleKey };
+      return { type: "live", label: "In Play", ariaLabel: "Active game in progress", roundKey: lifecycle.lifecycleKey };
     }
   }
 
-  const seconds = Math.max(0, Math.ceil((Number(lifecycle.startsAt) - now) / 1000));
+  // 3. Open phase: waiting for players to pick cards
   return {
-    type: "countdown",
-    label: formatCountdown(seconds),
-    ariaLabel: `Game starts in ${formatCountdown(seconds)}`,
-    startsAt: Number(lifecycle.startsAt),
+    type: "open",
+    label: "Open",
+    ariaLabel: "Open for players",
     roundKey: lifecycle.lifecycleKey,
   };
 }
@@ -457,7 +432,7 @@ function roomDisplayState(room, now = Date.now()) {
 function scheduleRoomCountdown(roomId, now = Date.now()) {
   const room = getLobbyRoom(roomId);
   if (!room || roomSourceStatus(room) !== "waiting") return null;
-  return createRoomCountdown(room, now, roomLifecycle[String(room.id)]);
+  return createRoomOpen(room, now, roomLifecycle[String(room.id)]);
 }
 
 function saveBalance() {
@@ -982,11 +957,12 @@ function renderPickRoomSummary() {
   if (pickStake) pickStake.textContent = `${roomStake} ETB`;
   if (players) players.textContent = room ? fmt(playerCount) : "—";
   if (availableEl) availableEl.textContent = cardNumbers.length ? fmt(available) : "—";
-  if (time) time.textContent = `${Math.max(0, pickLeft)}s`;
+  const isCounting = pickTimer !== null && pickLeft !== null && pickLeft > 0;
+  if (time) time.textContent = isCounting ? `${Math.max(0, pickLeft)}s` : (selected.size > 0 ? "Waiting" : "Open");
   const reservedStake = selected.size * roomStake;
   const availableBal = Math.max(0, balance - reservedStake);
   if (pickBalance) pickBalance.textContent = `${availableBal.toFixed(2)} ETB`;
-  if (bannerSeconds) bannerSeconds.textContent = formatCountdown(pickLeft);
+  if (bannerSeconds) bannerSeconds.textContent = isCounting ? formatCountdown(pickLeft) : "Open";
 }
 
 function renderWinningCards() {
@@ -1150,17 +1126,21 @@ function stopRoomStatusUpdates() {
 
 function roomStatusMarkup(state) {
   if (state.type === "live") {
-    return `<span class="lb-active-badge"><span>Active game</span><i aria-hidden="true"></i></span>`;
+    return `<span class="lb-active-badge"><span>In Play</span><i aria-hidden="true"></i></span>`;
   }
   if (state.type === "paused") {
     return `<span class="lb-room-paused">Paused</span>`;
   }
-  return `<span class="lb-countdown-badge">${state.label}</span>`;
+  if (state.type === "countdown") {
+    return `<span class="lb-countdown-badge">${state.label}</span>`;
+  }
+  return `<span class="lb-countdown-badge is-open">Open</span>`;
 }
 
 function roomBalanceMessage(room, canPlay, state) {
   if (!canPlay) return balance <= 0 ? "Low balance" : `Need ${fmt(room.stake - balance)} ETB`;
-  if (state.type === "countdown") return "Open";
+  if (state.type === "open") return "Open";
+  if (state.type === "countdown") return "Starting";
   if (state.type === "live") return "In game";
   return "Closed";
 }
@@ -1177,7 +1157,7 @@ function renderRooms() {
     ...rooms.map((room) => {
       const canPlay = canAfford(room.stake);
       const state = roomDisplayState(room);
-      const roomOpen = canPlay && state.type === "countdown";
+      const roomOpen = canPlay && (state.type === "open" || state.type === "countdown");
       const roomClosed = state.type === "live" || state.type === "paused";
       const derash = calculateDerash(room.players, room.stake);
       const balanceMessage = roomBalanceMessage(room, canPlay, state);
@@ -1195,7 +1175,7 @@ function renderRooms() {
         </span>
         <span class="lb-room-players">${fmt(room.players)}</span>
         <span class="lb-room-prize">${fmt(derash)} ETB</span>
-        <span class="lb-room-play${roomOpen ? " is-enabled" : " is-disabled"}">${roomOpen ? "Play" : roomClosed ? "Closed" : "Play"}</span>
+        <span class="lb-room-play${roomOpen ? " is-enabled" : " is-disabled"}">${roomOpen ? "Play" : roomClosed ? (state.type === "live" ? "In Play" : "Closed") : "Play"}</span>
       `;
       btn.addEventListener("click", () => enterRoom(room.id));
       wrap.appendChild(btn);
@@ -1213,7 +1193,7 @@ function enterRoom(roomId) {
   }
 
   const state = roomDisplayState(room);
-  if (state.type !== "countdown") {
+  if (state.type === "live" || state.type === "paused") {
     toast(state.type === "live" ? "ROUND IN PROGRESS" : "ROOM CLOSED", "lose");
     renderRooms();
     return;
@@ -1234,6 +1214,13 @@ function enterRoom(roomId) {
   }
 
   clearInterval(pickTimer);
+  pickTimer = null;
+  pickLeft = null;
+  pickEndsAt = 0;
+  if (opponentJoinTimeout) {
+    clearTimeout(opponentJoinTimeout);
+    opponentJoinTimeout = null;
+  }
   clearInterval(callTimer);
   activeRoomId = String(room.id);
   registerRealPlayerInRoom(room.id);
@@ -1249,33 +1236,50 @@ function enterRoom(roomId) {
   $("pick-stake").textContent = `${stake} ETB`;
   $("pick-cost").textContent = String(stake);
   renderWinningCards();
-  updatePickInfo();
   buildCardGrid();
   renderCartelaPreview();
-  startPickCountdown(state.startsAt, state.roundKey);
+
+  if (state.type === "countdown") {
+    startPickCountdown(state.startsAt, state.roundKey);
+  } else {
+    setupPickWaitingState();
+  }
 }
 
 function updatePickInfo() {
   const limit = Math.min(MAX_PICK, Math.floor(balance / stake));
-  const waitingForStart = pickLeft > 0;
+  const waitingForStart = pickTimer !== null && pickLeft !== null && pickLeft > 0;
   const startButton = $("start-game");
-  $("pick-count").textContent = String(selected.size);
-  $("pick-limit").textContent = String(limit);
-  $("pick-pool").textContent = fmt(prizePool());
-  $("pick-cost").textContent = String(stake);
-  startButton.disabled = !cardsReady || selected.size === 0;
-  startButton.innerHTML = waitingForStart
-    ? '<span aria-hidden="true">⌛</span> ENTER &amp; WAIT'
-    : '<span aria-hidden="true">▶</span> START GAME';
-  $("pick-helper").textContent = !cardsReady
-    ? cardsLoadError ? "The 1,000 card numbers could not be loaded." : "Loading all 1,000 card numbers…"
-    : waitingForStart
-      ? selected.size
-        ? "Enter the game now and wait inside until the countdown reaches zero."
-        : "Select your cartela. The round starts when the countdown reaches zero."
-      : selected.size
-        ? `${selected.size} cartela${selected.size === 1 ? "" : "s"} selected — starting now.`
-        : "Pick a cartela number or use Random Pick.";
+  if ($("pick-count")) $("pick-count").textContent = String(selected.size);
+  if ($("pick-limit")) $("pick-limit").textContent = String(limit);
+  if ($("pick-pool")) $("pick-pool").textContent = fmt(prizePool());
+  if ($("pick-cost")) $("pick-cost").textContent = String(stake);
+
+  if (startButton) {
+    if (selected.size === 0) {
+      startButton.disabled = true;
+      startButton.innerHTML = '<span aria-hidden="true">🎯</span> SELECT A CARTELA';
+    } else if (!waitingForStart) {
+      startButton.disabled = false;
+      startButton.innerHTML = '<span aria-hidden="true">⌛</span> WAITING FOR PLAYERS';
+    } else {
+      startButton.disabled = false;
+      startButton.innerHTML = '<span aria-hidden="true">⌛</span> ENTER &amp; WAIT';
+    }
+  }
+
+  if ($("pick-helper")) {
+    if (!cardsReady) {
+      $("pick-helper").textContent = cardsLoadError ? "The 1,000 card numbers could not be loaded." : "Loading all 1,000 card numbers…";
+    } else if (selected.size === 0) {
+      $("pick-helper").textContent = "Select your cartela. Countdown begins when players join.";
+    } else if (!waitingForStart) {
+      $("pick-helper").textContent = `${selected.size} cartela selected. Waiting for other players to join…`;
+    } else {
+      $("pick-helper").textContent = `Round starts in ${formatCountdown(pickLeft)}. Get ready!`;
+    }
+  }
+
   renderPickRoomSummary();
   updateGameWaiting();
 }
@@ -1381,9 +1385,7 @@ function toggleCard(id) {
     selectedPreviewId = id;
     ensureCard(id);
   }
-  paintPicks();
-  renderCartelaPreview();
-  updatePickInfo();
+  onCardSelectionChanged();
 }
 
 function randomAvailableCard() {
@@ -1416,36 +1418,118 @@ function randomPick(amount) {
     toast("NO CARTELA AVAILABLE", "lose");
     return;
   }
+  onCardSelectionChanged();
+  toast(`${added} RANDOM CARTELA${added === 1 ? "" : "S"} PICKED`, "win");
+}
+
+let opponentJoinTimeout = null;
+
+function setupPickWaitingState() {
+  clearInterval(pickTimer);
+  pickTimer = null;
+  pickEndsAt = 0;
+  pickLeft = null;
+  if (opponentJoinTimeout) {
+    clearTimeout(opponentJoinTimeout);
+    opponentJoinTimeout = null;
+  }
+  const time = $("pick-time");
+  const seconds = $("pick-secs");
+  const timer = $("pick-timer");
+  const banner = $("pick-banner-secs");
+  const helper = $("pick-helper");
+  if (time) time.textContent = selected.size > 0 ? "Waiting" : "Open";
+  if (seconds) seconds.textContent = "Open";
+  if (banner) banner.textContent = "Open";
+  if (timer) timer.classList.remove("is-urgent");
+  if (helper) {
+    helper.textContent = selected.size > 0
+      ? "Cartela selected! Waiting for other players to join…"
+      : "Select your cartela. Countdown begins when players join.";
+  }
+  updatePickInfo();
+}
+
+function scheduleOpponentJoin() {
+  if (opponentJoinTimeout) clearTimeout(opponentJoinTimeout);
+  opponentJoinTimeout = setTimeout(() => {
+    opponentJoinTimeout = null;
+    if (!views.pick.classList.contains("is-on")) return;
+    if (selected.size === 0) return;
+    const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
+    if (!room) return;
+
+    // Simulate 2 to 5 opponents joining the room and picking cards
+    const opponentCount = 2 + Math.floor(Math.random() * 4);
+    botPlayers = opponentCount;
+    for (let i = 0; i < opponentCount * 2; i++) {
+      const avail = cardNumbers.filter((id) => !selected.has(id) && !takenByOthers.has(id));
+      if (!avail.length) break;
+      const pickId = avail[Math.floor(Math.random() * avail.length)];
+      takenByOthers.add(pickId);
+    }
+    paintPicks();
+    updatePickInfo();
+
+    // Now at least 2 players have cards! Start room countdown for everyone equally!
+    const roomCountdown = startRoomCountdown(room, Date.now(), 15);
+    startPickCountdown(roomCountdown.startsAt, roomCountdown.lifecycleKey);
+    toast("OPPONENTS JOINED — COUNTDOWN STARTED!", "win");
+  }, 1600);
+}
+
+function onCardSelectionChanged() {
   paintPicks();
   renderCartelaPreview();
   updatePickInfo();
-  toast(`${added} RANDOM CARTELA${added === 1 ? "" : "S"} PICKED`, "win");
+
+  if (selected.size === 0) {
+    if (!pickTimer) {
+      if (opponentJoinTimeout) {
+        clearTimeout(opponentJoinTimeout);
+        opponentJoinTimeout = null;
+      }
+      setupPickWaitingState();
+    }
+  } else {
+    if (!pickTimer && !opponentJoinTimeout) {
+      scheduleOpponentJoin();
+      const time = $("pick-time");
+      if (time) time.textContent = "Waiting";
+      const helper = $("pick-helper");
+      if (helper) helper.textContent = "Cartela selected! Waiting for other players to join…";
+    }
+  }
 }
 
 function updatePickCountdownDisplay() {
   const seconds = $("pick-secs");
+  const time = $("pick-time");
   const timer = $("pick-timer");
-  if (seconds) seconds.textContent = formatCountdown(pickLeft);
-  if (timer) timer.classList.toggle("is-urgent", pickLeft <= 10);
+  const banner = $("pick-banner-secs");
+  const isCounting = pickTimer !== null && pickLeft !== null && pickLeft > 0;
+  const label = isCounting ? formatCountdown(pickLeft) : (selected.size > 0 ? "Waiting" : "Open");
+  if (seconds) seconds.textContent = label;
+  if (time) time.textContent = isCounting ? `${Math.max(0, pickLeft)}s` : label;
+  if (banner) banner.textContent = label;
+  if (timer) timer.classList.toggle("is-urgent", isCounting && pickLeft <= 5);
   renderPickRoomSummary();
   updateGameWaiting();
 }
 
 function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
   clearInterval(pickTimer);
-  // Keep the countdown tied to the room round that was opened. If another
-  // room changes state while this page is open, this timer must not start it.
   pickTimer = null;
 
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
   const roomState = room ? roomDisplayState(room) : null;
   const suppliedStart = Number(roomStartsAt);
   const roomStart = Number(roomState?.startsAt);
-  pickEndsAt = Number.isFinite(suppliedStart)
+  pickEndsAt = Number.isFinite(suppliedStart) && suppliedStart > Date.now()
     ? suppliedStart
-    : Number.isFinite(roomStart)
+    : Number.isFinite(roomStart) && roomStart > Date.now()
       ? roomStart
-      : Date.now() + getPickCountdownSeconds() * 1000;
+      : Date.now() + 15 * 1000;
 
   const tick = () => {
     const currentRoom = activeRoomId ? getLobbyRoom(activeRoomId) : null;
@@ -1459,8 +1543,15 @@ function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
     pickLeft = Math.max(0, Math.ceil((pickEndsAt - Date.now()) / 1000));
     updatePickCountdownDisplay();
     updatePickInfo();
+
+    // Occasional simulated cartela pick while counting down
+    if (pickLeft > 2 && Math.random() < 0.35) {
+      simulateOthersPicking();
+    }
+
     if (pickLeft > 0) return;
 
+    // Countdown reached 0:00!
     clearInterval(pickTimer);
     pickTimer = null;
     pickEndsAt = 0;
@@ -1477,11 +1568,18 @@ function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
   };
 
   tick();
-  if (pickLeft > 0) pickTimer = setInterval(tick, 250);
+  pickTimer = setInterval(tick, 250);
 }
 
 function simulateOthersPicking() {
-  // Disabled: Cartelas are strictly selected by real human players only
+  if (!views.pick.classList.contains("is-on")) return;
+  const avail = cardNumbers.filter((id) => !selected.has(id) && !takenByOthers.has(id));
+  if (avail.length > 0) {
+    const pickId = avail[Math.floor(Math.random() * avail.length)];
+    takenByOthers.add(pickId);
+    paintPicks();
+    renderPickRoomSummary();
+  }
 }
 
 function startGame() {
@@ -1564,6 +1662,16 @@ function startGame() {
 function beginLiveGame() {
   if (!selected.size || !entryCharged) return;
   clearInterval(pickTimer);
+  pickTimer = null;
+  if (activeRoomId) {
+    roomLifecycle[activeRoomId] = {
+      ...(roomLifecycle[activeRoomId] || {}),
+      phase: "live",
+      startedAt: Date.now(),
+      endsAt: Date.now() + ROOM_GAME_MS,
+    };
+    saveRoomLifecycle();
+  }
   setGameWaitingState(false);
   playing = true;
   claimed = false;
@@ -1618,7 +1726,13 @@ function returnToCardSelection() {
   hideWinnerOverlay();
   clearInterval(callTimer);
   clearInterval(pickTimer);
+  pickTimer = null;
   pickEndsAt = 0;
+  pickLeft = null;
+  if (opponentJoinTimeout) {
+    clearTimeout(opponentJoinTimeout);
+    opponentJoinTimeout = null;
+  }
   stopRoomUpdates();
   stopRoomStatusUpdates();
   playing = false;
@@ -1633,6 +1747,7 @@ function returnToCardSelection() {
   selected = new Set();
   selectedPreviewId = null;
   takenByOthers = new Set();
+  botPlayers = 0;
   hideRoundResult();
 
   if (!room) {
@@ -1644,16 +1759,8 @@ function returnToCardSelection() {
     return;
   }
 
-  const roomState = roomDisplayState(room);
-  if (roomState.type !== "countdown") {
-    if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
-    activeRoomId = null;
-    setGameWaitingState(false);
-    showView("lobby");
-    renderRooms();
-    return;
-  }
-
+  // Reset room to OPEN for the next round!
+  createRoomOpen(room, Date.now(), roomLifecycle[String(room.id)]);
   activeRoomId = String(room.id);
   registerRealPlayerInRoom(room.id);
   stake = room.stake;
@@ -1663,17 +1770,16 @@ function returnToCardSelection() {
   $("pick-stake").textContent = `${stake} ETB`;
   $("pick-cost").textContent = String(stake);
   renderWinningCards();
-  updatePickInfo();
   buildCardGrid();
   renderCartelaPreview();
-  startPickCountdown(roomState.startsAt, roomState.roundKey);
+  setupPickWaitingState();
+  renderRooms();
 }
 
 function finishActiveRoomRound() {
-  if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
   if (!room || roomSourceStatus(room) !== "waiting") return;
-  scheduleRoomCountdown(room.id);
+  createRoomOpen(room, Date.now(), roomLifecycle[String(room.id)]);
 }
 
 function renderWinnerConfetti() {
@@ -2090,6 +2196,9 @@ function nextCall() {
       showRoundResult("lose", "No player");
       markLoserCards();
       toast("NO WINNER", "lose");
+      setTimeout(() => {
+        returnToCardSelection();
+      }, 4000);
     }
     return;
   }
@@ -2117,6 +2226,11 @@ function nextCall() {
     $("game-status").textContent = autoMarkingEnabled
       ? "Called " + letter + "-" + n
       : "Called " + letter + "-" + n + " — tap it on your card";
+  }
+
+  if (!claimed && called.length >= 26 && Math.random() < 0.055) {
+    botWins();
+    return;
   }
 }
 
@@ -2198,7 +2312,28 @@ function claimBingo() {
 }
 
 function botWins() {
-  // Disabled: Bots never claim fake bingo over real users
+  if (claimed || !playing) return;
+  claimed = true;
+  playing = false;
+  clearInterval(callTimer);
+  finishActiveRoomRound();
+  const BOT_WINNER_NAMES = [
+    "Abebe T.", "Sara M.", "Dawit K.", "Hanan A.", "Yonas B.",
+    "Selam W.", "Tigist G.", "Bereket F.", "Kidus N.", "Bethlehem D."
+  ];
+  const winnerName = BOT_WINNER_NAMES[Math.floor(Math.random() * BOT_WINNER_NAMES.length)] || "Dawit K.";
+  const botCardId = [...takenByOthers][0] || Math.floor(Math.random() * 900) + 1;
+  const botPrize = calculateDerash(Math.max(2, selected.size + botPlayers), stake);
+  roundOutcome = "lose";
+  roundWinnerName = winnerName;
+  roundWinCardId = botCardId;
+  const bingoBtn = $("bingo-btn");
+  if (bingoBtn) bingoBtn.disabled = true;
+  $("game-status").textContent = `${winnerName} claimed Bingo!`;
+  showRoundResult("lose", winnerName, "LINE", botCardId);
+  renderMineCards();
+  toast(`${winnerName} CLAIMED BINGO!`, "lose");
+  showWinnerOverlay("lose", winnerName, botPrize, botCardId, "LINE");
 }
 
 function leaveGame() {
