@@ -504,6 +504,9 @@ function checkAdminAccess() {
   const adminBtn = $("admin-link") || document.querySelector(".lb-admin-link");
   if (!adminBtn) return;
 
+  const ADMIN_USERNAMES = ["samtesfa19", "su121316"];
+  const ADMIN_UIDS = ["5663531258"];
+
   let isAdmin = false;
 
   // 1. Check URL parameters (?role=admin or ?admin=1 or ?u=5663531258)
@@ -514,7 +517,7 @@ function checkAdminAccess() {
     const adminParam = searchParams.get("admin") || hashParams.get("admin");
     const uParam = searchParams.get("u") || searchParams.get("uid") || hashParams.get("u");
 
-    if (roleParam === "admin" || adminParam === "1" || uParam === "5663531258") {
+    if (roleParam === "admin" || adminParam === "1" || ADMIN_UIDS.includes(uParam)) {
       isAdmin = true;
       try { sessionStorage.setItem("lb_is_admin", "1"); } catch (e) {}
     }
@@ -530,7 +533,7 @@ function checkAdminAccess() {
       if (user) {
         const uid = String(user.id || "");
         const uname = String(user.username || "").toLowerCase();
-        if (uid === "5663531258" || uname === "samtesfa19") {
+        if (ADMIN_UIDS.includes(uid) || ADMIN_USERNAMES.includes(uname)) {
           isAdmin = true;
           try { sessionStorage.setItem("lb_is_admin", "1"); } catch (e) {}
         }
@@ -543,7 +546,7 @@ function checkAdminAccess() {
     try {
       const cfgUname = String(window.LUCKY_BINGO_ADMIN.username || "").replace(/^@/, "").toLowerCase();
       const currentTgUname = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.username || "").toLowerCase();
-      if (cfgUname && currentTgUname && currentTgUname === cfgUname) {
+      if (cfgUname && currentTgUname && (currentTgUname === cfgUname || ADMIN_USERNAMES.includes(currentTgUname))) {
         isAdmin = true;
         try { sessionStorage.setItem("lb_is_admin", "1"); } catch (e) {}
       }
@@ -555,7 +558,8 @@ function checkAdminAccess() {
     try {
       if (sessionStorage.getItem("lb_is_admin") === "1") {
         const currentUid = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "");
-        if (currentUid && currentUid !== "5663531258") {
+        const currentUname = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.username || "").toLowerCase();
+        if (currentUid && !ADMIN_UIDS.includes(currentUid) && !ADMIN_USERNAMES.includes(currentUname)) {
           sessionStorage.removeItem("lb_is_admin");
           isAdmin = false;
         } else {

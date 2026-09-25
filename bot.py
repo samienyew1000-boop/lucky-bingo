@@ -55,9 +55,9 @@ GROUP_URL = os.getenv("GROUP_URL", "https://t.me/your_telegram_channel")
 CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/samTesfa19")
 
 # Authorized Administrators (comma-separated in .env or set here)
-raw_usernames = os.getenv("ADMIN_USERNAMES", "samTesfa19")
+raw_usernames = os.getenv("ADMIN_USERNAMES", "samTesfa19,su121316")
 ADMIN_USERNAMES = [u.strip().lstrip("@").lower() for u in raw_usernames.split(",") if u.strip()]
-raw_phones = os.getenv("ADMIN_PHONES", "+251939292694")
+raw_phones = os.getenv("ADMIN_PHONES", "+251939292694,+251999909474,0999909474")
 ADMIN_PHONES = [p.strip() for p in raw_phones.split(",") if p.strip()]
 raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", "5663531258")
 ADMIN_TELEGRAM_IDS = [int(i.strip()) for i in raw_ids.split(",") if i.strip().isdigit()]
