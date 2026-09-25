@@ -49,15 +49,18 @@ def load_dotenv(filepath=".env"):
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8830052755:AAEXkmyT2BaGh876mZvducpzRjJtATdlOWY")
-WEB_APP_URL = os.getenv("WEB_APP_URL", "https://lucky-bingo-iota.vercel.app/")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8903701497:AAEMVWcaDSxdz7aQLVerCn4gPiEOOoGFp4Q")
+WEB_APP_URL = os.getenv("WEB_APP_URL", "https://lucky-bingo.ethiodeploy.com/")
 GROUP_URL = os.getenv("GROUP_URL", "https://t.me/your_telegram_channel")
-CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/your_support_username")
+CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/samTesfa19")
 
 # Authorized Administrators (comma-separated in .env or set here)
-ADMIN_USERNAMES = [u.strip().lstrip("@").lower() for u in os.getenv("ADMIN_USERNAMES", "").split(",") if u.strip()]
-ADMIN_PHONES = [p.strip() for p in os.getenv("ADMIN_PHONES", "").split(",") if p.strip()]
-ADMIN_TELEGRAM_IDS = [int(i.strip()) for i in os.getenv("ADMIN_TELEGRAM_IDS", "").split(",") if i.strip().isdigit()]
+raw_usernames = os.getenv("ADMIN_USERNAMES", "samTesfa19")
+ADMIN_USERNAMES = [u.strip().lstrip("@").lower() for u in raw_usernames.split(",") if u.strip()]
+raw_phones = os.getenv("ADMIN_PHONES", "+251939292694")
+ADMIN_PHONES = [p.strip() for p in raw_phones.split(",") if p.strip()]
+raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", "5663531258")
+ADMIN_TELEGRAM_IDS = [int(i.strip()) for i in raw_ids.split(",") if i.strip().isdigit()]
 
 DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 DB_PATH = os.path.join(DB_DIR, "lucky_bingo.db")
