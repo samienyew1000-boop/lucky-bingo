@@ -1646,12 +1646,14 @@ function onCardSelectionChanged() {
   } else {
     if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
       LuckyBingoAPI.joinRoom(activeRoomId, Array.from(selected)).then((res) => {
-        if (res && res.error) {
-          toast(res.error.toUpperCase(), "lose");
+        if (!res || res.error) {
+          console.warn("[API] joinRoom notice:", res?.error);
         } else {
           syncProfileWithServer();
         }
-      }).catch(() => {});
+      }).catch((e) => {
+        console.warn("[API] joinRoom network notice:", e);
+      });
     }
     if (!pickTimer && !opponentJoinTimeout) {
       scheduleOpponentJoin();

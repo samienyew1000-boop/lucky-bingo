@@ -77,14 +77,13 @@ const LuckyBingoAPI = (() => {
       });
 
       if (!response.ok) {
-        const text = await response.text();
-        let errorData;
+        let errorMsg = `HTTP ${response.status}`;
         try {
-          errorData = JSON.parse(text);
-        } catch (e) {
-          errorData = { error: text || `HTTP ${response.status}` };
-        }
-        return { error: errorData.error || `HTTP ${response.status}`, _status: response.status };
+          const text = await response.text();
+          const parsed = JSON.parse(text);
+          if (parsed && parsed.error) errorMsg = String(parsed.error);
+        } catch (e) {}
+        return { error: errorMsg, _status: response.status };
       }
 
       return await response.json();
