@@ -52,7 +52,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8903701497:AAEMVWcaDSxdz7aQLVerCn4gPiEOOoGFp4Q")
 WEB_APP_URL = os.getenv("WEB_APP_URL", "https://lucky-bingo.ethiodeploy.com/")
 GROUP_URL = os.getenv("GROUP_URL", "https://t.me/your_telegram_channel")
-CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/samTesfa19")
+CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/su121316")
 
 # Authorized Administrators (comma-separated in .env or set here)
 raw_usernames = os.getenv("ADMIN_USERNAMES", "samTesfa19,su121316")
