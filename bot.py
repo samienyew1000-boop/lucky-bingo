@@ -1154,10 +1154,18 @@ async def post_init(application: Application) -> None:
 # BACKGROUND WEB / HEALTH SERVER (FOR ETHIODEPLOY / CLOUD HOSTING)
 # ==============================================================================
 def start_background_web_server() -> None:
-    """Runs a background HTTP server to respond to health checks and serve the webapp if needed."""
-    port = int(os.getenv("PORT", "8080"))
+    """Runs background HTTP server(s) to respond to health checks and serve the webapp."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    primary_port = int(os.getenv("PORT", "3000"))
+    ports = [primary_port]
+    for p in (3000, 8080):
+        if p not in ports:
+            ports.append(p)
 
     class HealthAndStaticServer(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=base_dir, **kwargs)
+
         def do_GET(self):
             if self.path in ("/health", "/healthz", "/ping"):
                 self.send_response(200)
@@ -1165,21 +1173,26 @@ def start_background_web_server() -> None:
                 self.end_headers()
                 self.wfile.write(b"OK")
                 return
+            if self.path == "/" or not self.path:
+                self.path = "/index.html"
             return super().do_GET()
 
         def log_message(self, format, *args):
-            pass  # Keep logs clean
+            pass
 
-    def serve():
-        try:
-            server = HTTPServer(("0.0.0.0", port), HealthAndStaticServer)
-            logger.info("Background HTTP/Health server listening on port %d", port)
-            server.serve_forever()
-        except Exception as e:
-            logger.warning("Could not start background HTTP server on port %d: %s", port, e)
+    for p in ports:
+        def make_serve(port_num):
+            def serve():
+                try:
+                    server = HTTPServer(("0.0.0.0", port_num), HealthAndStaticServer)
+                    logger.info("Background HTTP/Health server listening on port %d", port_num)
+                    server.serve_forever()
+                except Exception as e:
+                    logger.debug("Port %d bind skipped: %s", port_num, e)
+            return serve
 
-    t = threading.Thread(target=serve, daemon=True)
-    t.start()
+        t = threading.Thread(target=make_serve(p), daemon=True)
+        t.start()
 
 # ==============================================================================
 # MAIN APPLICATION
