@@ -3,6 +3,8 @@ import sys
 import json
 import sqlite3
 import logging
+import threading
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
@@ -1146,12 +1148,44 @@ async def post_init(application: Application) -> None:
         logger.warning("Could not set bot commands or menu button immediately: %s", e)
 
 # ==============================================================================
+# BACKGROUND WEB / HEALTH SERVER (FOR ETHIODEPLOY / CLOUD HOSTING)
+# ==============================================================================
+def start_background_web_server() -> None:
+    """Runs a background HTTP server to respond to health checks and serve the webapp if needed."""
+    port = int(os.getenv("PORT", "8080"))
+
+    class HealthAndStaticServer(SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path in ("/health", "/healthz", "/ping"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"OK")
+                return
+            return super().do_GET()
+
+        def log_message(self, format, *args):
+            pass  # Keep logs clean
+
+    def serve():
+        try:
+            server = HTTPServer(("0.0.0.0", port), HealthAndStaticServer)
+            logger.info("Background HTTP/Health server listening on port %d", port)
+            server.serve_forever()
+        except Exception as e:
+            logger.warning("Could not start background HTTP server on port %d: %s", port, e)
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+
+# ==============================================================================
 # MAIN APPLICATION
 # ==============================================================================
 def main() -> None:
     """Starts the bot."""
     init_db()
     export_admin_players()
+    start_background_web_server()
 
     if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
         logger.warning(
