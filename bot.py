@@ -16,8 +16,20 @@ from telegram.ext import (
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-# Replace with your Bot Token from @BotFather, or set the BOT_TOKEN environment variable
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+# Helper to read .env file if present
+def load_dotenv(filepath=".env"):
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
+load_dotenv()
+
+# Telegram Bot Token from @BotFather
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8830052755:AAEXkmyT2BaGh876mZvducpzRjJtATdlOWY")
 
 # Lucky Bingo Web App URL
 WEB_APP_URL = os.getenv("WEB_APP_URL", "https://lucky-bingo-iota.vercel.app/")
