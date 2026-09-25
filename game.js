@@ -98,6 +98,150 @@ let roundWinKind = "";
 let roundWinCardId = null;
 let walletState = { deposit: "Telebirr", withdraw: "Telebirr" };
 
+// =============================================================================
+// SERVER-SIDE SYNCHRONIZATION (CROSS-DEVICE SYNC)
+// =============================================================================
+async function syncProfileWithServer() {
+  if (typeof LuckyBingoAPI === "undefined") return;
+  try {
+    const user = await LuckyBingoAPI.getProfile();
+    if (user && !user.error && typeof user.balance === "number") {
+      balance = user.balance;
+      localStorage.setItem(BALANCE_KEY, String(balance));
+      const lobbyBalance = $("balance");
+      if (lobbyBalance) lobbyBalance.textContent = fmtBal(balance);
+      const pickBalance = $("pick-balance");
+      if (pickBalance) pickBalance.textContent = `${Number(balance).toFixed(2)} ETB`;
+      updateWalletBalances();
+      renderRooms();
+    }
+  } catch (e) {
+    console.warn("Server profile sync error:", e);
+  }
+}
+
+function startServerLobbySync() {
+  if (typeof LuckyBingoAPI === "undefined") return;
+  LuckyBingoAPI.startLobbyPoll((data) => {
+    if (!data || data.error || !Array.isArray(data.rooms)) return;
+    for (const sRoom of data.rooms) {
+      const rid = String(sRoom.room_id || sRoom.id);
+      const room = getLobbyRoom(rid);
+      if (room && sRoom.player_count !== undefined) {
+        room.players = sRoom.player_count;
+      }
+      if (sRoom.status === "countdown" && sRoom.countdown_ends_at) {
+        const startsAt = sRoom.countdown_ends_at * 1000;
+        roomLifecycle[rid] = {
+          ...(roomLifecycle[rid] || {}),
+          phase: "countdown",
+          startsAt: startsAt,
+          roundId: String(sRoom.round_id || "1"),
+          lifecycleKey: `countdown:${sRoom.round_id}:1`,
+        };
+      } else if (sRoom.status === "live") {
+        roomLifecycle[rid] = {
+          ...(roomLifecycle[rid] || {}),
+          phase: "live",
+          startedAt: Date.now(),
+          endsAt: Date.now() + ROOM_GAME_MS,
+          roundId: String(sRoom.round_id || "1"),
+          lifecycleKey: `live:${sRoom.round_id}:1`,
+        };
+      } else if (sRoom.status === "open") {
+        roomLifecycle[rid] = {
+          ...(roomLifecycle[rid] || {}),
+          phase: "open",
+          roundId: String(sRoom.round_id || "0"),
+          lifecycleKey: `open:${sRoom.round_id}:1`,
+        };
+      }
+    }
+    if (views.lobby && views.lobby.classList.contains("is-on")) {
+      renderRooms();
+    }
+  }, 1500);
+}
+
+function handleServerRoomState(sState) {
+  if (!sState || sState.error) return;
+  const rid = String(sState.room_id || activeRoomId);
+  const room = getLobbyRoom(rid);
+  if (room && sState.player_count !== undefined) {
+    room.players = sState.player_count;
+  }
+
+  // 1. Status is COUNTDOWN
+  if (sState.status === "countdown" && sState.countdown_ends_at > 0) {
+    const startsAt = sState.countdown_ends_at * 1000;
+    const remaining = Math.max(0, Math.ceil((startsAt - Date.now()) / 1000));
+    pickLeft = remaining;
+    pickEndsAt = startsAt;
+    updatePickCountdownDisplay();
+    updatePickInfo();
+    renderPickRoomSummary();
+
+    if (views.pick && views.pick.classList.contains("is-on")) {
+      if (remaining <= 0 && selected.size > 0 && !playing && !gameWaiting) {
+        startGame();
+      }
+    }
+  }
+
+  // 2. Status is LIVE
+  if (sState.status === "live") {
+    if (!playing && selected.size > 0) {
+      entryCharged = true;
+      beginLiveGame();
+    }
+    if (playing && Array.isArray(sState.calls)) {
+      for (const n of sState.calls) {
+        if (!called.includes(n)) {
+          handleSingleCall(n);
+        }
+      }
+    }
+  }
+
+  // 3. Status is OPEN
+  if (sState.status === "open") {
+    if (!pickTimer && !playing) {
+      updatePickCountdownDisplay();
+      renderPickRoomSummary();
+    }
+  }
+
+  // 4. Server reports round result (Winner announced!)
+  if (sState.last_result && !claimed) {
+    const res = sState.last_result;
+    if (res.ended_at && (Date.now() / 1000 - res.ended_at) < 8) {
+      const myProfile = typeof LuckyBingoAPI !== "undefined" ? LuckyBingoAPI.getTelegramUser() : null;
+      const isMe = res.winner_id && myProfile && Number(res.winner_id) === Number(myProfile.id);
+      claimed = true;
+      playing = false;
+      clearInterval(callTimer);
+      if (isMe) {
+        roundOutcome = "win";
+        roundWinnerName = res.winner_name || PLAYER_NAME;
+        showRoundResult("win", roundWinnerName, "LINE", selected.values().next().value);
+        showWinnerOverlay("win", roundWinnerName, res.prize, selected.values().next().value, "LINE");
+        toast("YOU WON!", "win");
+      } else {
+        roundOutcome = "lose";
+        roundWinnerName = res.winner_name || "Opponent";
+        showRoundResult("lose", roundWinnerName, "LINE", null);
+        markLoserCards();
+        showWinnerOverlay("lose", roundWinnerName, res.prize || stake * 3, null, "LINE");
+        toast((roundWinnerName).toUpperCase() + " WON!", "lose");
+      }
+      syncProfileWithServer();
+      setTimeout(() => {
+        returnToCardSelection();
+      }, 5000);
+    }
+  }
+}
+
 function loadNum(key, fallback, minimum = 1) {
   const n = Number(localStorage.getItem(key));
   return Number.isFinite(n) && n >= minimum ? n : fallback;
@@ -1244,6 +1388,11 @@ function enterRoom(roomId) {
   } else {
     setupPickWaitingState();
   }
+
+  if (typeof LuckyBingoAPI !== "undefined") {
+    LuckyBingoAPI.stopLobbyPoll();
+    LuckyBingoAPI.startRoomPoll(activeRoomId, handleServerRoomState, 800);
+  }
 }
 
 function updatePickInfo() {
@@ -1484,6 +1633,9 @@ function onCardSelectionChanged() {
   updatePickInfo();
 
   if (selected.size === 0) {
+    if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
+      LuckyBingoAPI.leaveRoom(activeRoomId).catch(() => {});
+    }
     if (!pickTimer) {
       if (opponentJoinTimeout) {
         clearTimeout(opponentJoinTimeout);
@@ -1492,6 +1644,15 @@ function onCardSelectionChanged() {
       setupPickWaitingState();
     }
   } else {
+    if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
+      LuckyBingoAPI.joinRoom(activeRoomId, Array.from(selected)).then((res) => {
+        if (res && res.error) {
+          toast(res.error.toUpperCase(), "lose");
+        } else {
+          syncProfileWithServer();
+        }
+      }).catch(() => {});
+    }
     if (!pickTimer && !opponentJoinTimeout) {
       scheduleOpponentJoin();
       const time = $("pick-time");
@@ -2186,6 +2347,39 @@ function playNopeVoice() {
   }
 }
 
+function handleSingleCall(n) {
+  if (called.includes(n)) return;
+  called.push(n);
+  if (!autoMarkingEnabled) manualMarked.delete(n);
+  const letter = letterFor(n);
+  const ballEl = $("call-ball");
+  if (ballEl) {
+    ballEl.textContent = String(n);
+    ballEl.dataset.letter = letter;
+  }
+  const callLetterEl = $("call-letter");
+  if (callLetterEl) callLetterEl.textContent = letter;
+  const callCountEl = $("call-count");
+  if (callCountEl) callCountEl.textContent = String(called.length);
+  updateRecentCalls();
+  updateGameSummary();
+  paintBoard();
+  renderMineCards();
+  playCallVoice(n, letter);
+
+  const ready = updateBingoButton();
+  const gameStatusEl = $("game-status");
+  if (gameStatusEl) {
+    if (ready && !claimed) {
+      gameStatusEl.textContent = "You have BINGO — claim now!";
+    } else {
+      gameStatusEl.textContent = autoMarkingEnabled
+        ? "Called " + letter + "-" + n
+        : "Called " + letter + "-" + n + " — tap it on your card";
+    }
+  }
+}
+
 function nextCall() {
   if (!playing || !callPool.length) {
     clearInterval(callTimer);
@@ -2203,30 +2397,7 @@ function nextCall() {
     return;
   }
   const n = callPool.pop();
-  called.push(n);
-  if (!autoMarkingEnabled) manualMarked.delete(n);
-  const letter = letterFor(n);
-  const ballEl = $("call-ball");
-  if (ballEl) {
-    ballEl.textContent = String(n);
-    ballEl.dataset.letter = letter;
-  }
-  $("call-letter").textContent = letter;
-  $("call-count").textContent = String(called.length);
-  updateRecentCalls();
-  updateGameSummary();
-  paintBoard();
-  renderMineCards();
-  playCallVoice(n, letter);
-
-  const ready = updateBingoButton();
-  if (ready && !claimed) {
-    $("game-status").textContent = "You have BINGO — claim now!";
-  } else {
-    $("game-status").textContent = autoMarkingEnabled
-      ? "Called " + letter + "-" + n
-      : "Called " + letter + "-" + n + " — tap it on your card";
-  }
+  handleSingleCall(n);
 
   if (!claimed && called.length >= 26 && Math.random() < 0.055) {
     botWins();
@@ -2309,6 +2480,12 @@ function claimBingo() {
   toast("WON! +" + fmt(win), "win");
   $("bingo-btn").disabled = true;
   showWinnerOverlay("win", PLAYER_NAME, win, winCard, kind);
+
+  if (activeRoomId && winCard && typeof LuckyBingoAPI !== "undefined") {
+    LuckyBingoAPI.claimBingo(activeRoomId, winCard).then((res) => {
+      syncProfileWithServer();
+    });
+  }
 }
 
 function botWins() {
@@ -2567,6 +2744,12 @@ function handleDepositSubmit(event) {
   );
   event.currentTarget.reset();
   toast("DEPOSIT REQUEST SENT", "win");
+
+  if (typeof LuckyBingoAPI !== "undefined") {
+    LuckyBingoAPI.deposit(amount, method, reference, "").then((res) => {
+      syncProfileWithServer();
+    }).catch(() => {});
+  }
 }
 
 function handleWithdrawSubmit(event) {
@@ -2610,6 +2793,12 @@ function handleWithdrawSubmit(event) {
   );
   event.currentTarget.reset();
   toast("WITHDRAWAL REQUEST SENT", "win");
+
+  if (typeof LuckyBingoAPI !== "undefined") {
+    LuckyBingoAPI.withdraw(amount, method, phone).then((res) => {
+      syncProfileWithServer();
+    }).catch(() => {});
+  }
 }
 
 function syncPlayerWalletFromStorage() {
@@ -2724,6 +2913,14 @@ function startClock() {
 
 loadCardCatalog();
 renderBalance();
+syncProfileWithServer();
+startServerLobbySync();
+window.addEventListener("focus", syncProfileWithServer);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    syncProfileWithServer();
+  }
+});
 bind();
 if (startingBonusAwarded > 0) toast(`STARTING BONUS +${fmt(startingBonusAwarded)} ETB`, "win");
 if (window.location.hash === "#game" || window.location.search.includes("view=game")) {

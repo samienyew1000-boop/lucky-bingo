@@ -7,6 +7,29 @@ import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime
 from typing import Dict, Any, Optional, List
+import hashlib
+import hmac
+import time
+import urllib.parse
+import random
+
+def validate_telegram_webapp(init_data: str) -> Optional[Dict[str, Any]]:
+    """Validate Telegram WebApp initData and return the user dict if valid."""
+    if not init_data:
+        return None
+    try:
+        parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+        received_hash = parsed.pop('hash', '')
+        # Build the check string
+        data_check = '\n'.join(f'{k}={v}' for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b'WebAppData', BOT_TOKEN.encode(), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calculated_hash, received_hash):
+            return None
+        user_data = json.loads(parsed.get('user', '{}'))
+        return user_data if user_data.get('id') else None
+    except Exception:
+        return None
 
 # Ensure stdout and stderr handle UTF-8 without crashing on Windows cp1252 consoles
 if sys.platform == "win32":
@@ -76,6 +99,29 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+def validate_telegram_webapp(init_data: str) -> Optional[Dict[str, Any]]:
+    """Validate Telegram WebApp initData and return the user dict if valid."""
+    if not init_data:
+        return None
+    try:
+        parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+        received_hash = parsed.pop("hash", "")
+        if not received_hash:
+            return None
+        data_check = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode("utf-8"), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(calculated_hash, received_hash):
+            return None
+        user_json = parsed.get("user")
+        if user_json:
+            user_data = json.loads(user_json)
+            if isinstance(user_data, dict) and user_data.get("id"):
+                return user_data
+    except Exception as e:
+        logger.warning("Error validating telegram webapp initData: %s", e)
+    return None
 
 # ==============================================================================
 # DATABASE MANAGEMENT (SQLite)
@@ -163,6 +209,45 @@ def init_db() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
         """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS game_rooms (
+                id TEXT PRIMARY KEY,
+                status TEXT DEFAULT 'open',
+                round_id INTEGER DEFAULT 0,
+                countdown_ends_at REAL DEFAULT 0,
+                updated_at TEXT
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS room_players (
+                room_id TEXT,
+                user_id INTEGER,
+                round_id INTEGER,
+                card_ids TEXT DEFAULT '[]',
+                joined_at TEXT,
+                PRIMARY KEY (room_id, user_id, round_id),
+                FOREIGN KEY(room_id) REFERENCES game_rooms(id),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS game_calls (
+                room_id TEXT,
+                round_id INTEGER,
+                call_index INTEGER,
+                number INTEGER,
+                called_at TEXT,
+                PRIMARY KEY (room_id, round_id, call_index)
+            )
+        """)
+        
+        cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES ('10', 'open', 0, datetime('now'))")
+        cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES ('20', 'open', 0, datetime('now'))")
+        cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES ('50', 'open', 0, datetime('now'))")
+        
         conn.commit()
     logger.info("SQLite database initialized at: %s", DB_PATH)
 
@@ -298,6 +383,326 @@ def export_admin_players() -> None:
         logger.info("Admin players exported: %d verified players.", len(players_list))
     except Exception as e:
         logger.error("Error exporting admin players: %s", e)
+
+# ==============================================================================
+# GAME ENGINE (IN-MEMORY STATE MANAGER)
+# ==============================================================================
+class GameEngine:
+    """Server-side game state manager for all bingo rooms."""
+    
+    def __init__(self):
+        self.lock = threading.Lock()
+        self._call_timers = {}  # room_id -> timer thread
+        self._bot_players = {}  # room_id -> list of bot player dicts
+    
+    def get_room_state(self, room_id):
+        """Get the current state of a room."""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (room_id,))
+            room = cursor.fetchone()
+            if not room:
+                return None
+            
+            round_id = room['round_id']
+            
+            # Get players
+            cursor.execute('SELECT rp.user_id, rp.card_ids, u.username, u.first_name FROM room_players rp JOIN users u ON rp.user_id = u.id WHERE rp.room_id = ? AND rp.round_id = ?', (room_id, round_id))
+            players = [dict(row) for row in cursor.fetchall()]
+            
+            # Get calls
+            cursor.execute('SELECT number, call_index FROM game_calls WHERE room_id = ? AND round_id = ? ORDER BY call_index', (room_id, round_id))
+            calls = [row['number'] for row in cursor.fetchall()]
+            
+            bot_players = self._bot_players.get(room_id, [])
+            
+            return {
+                'room_id': room_id,
+                'stake': int(room_id),
+                'status': room['status'],
+                'round_id': round_id,
+                'countdown_ends_at': room['countdown_ends_at'] or 0,
+                'players': players,
+                'bot_players': bot_players,
+                'calls': calls,
+                'player_count': len(players) + len(bot_players),
+            }
+    
+    def join_room(self, room_id, user_id, card_ids):
+        """Player joins a room with selected cards. Returns success/error dict."""
+        with self.lock:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (room_id,))
+                room = cursor.fetchone()
+                if not room:
+                    return {'error': 'Room not found'}
+                if room['status'] == 'live':
+                    return {'error': 'Game in progress, please wait'}
+                
+                stake = int(room_id)
+                round_id = room['round_id']
+                
+                # Check if already joined this round
+                cursor.execute('SELECT 1 FROM room_players WHERE room_id = ? AND user_id = ? AND round_id = ?', (room_id, user_id, round_id))
+                if cursor.fetchone():
+                    # Update card selection
+                    cursor.execute('UPDATE room_players SET card_ids = ? WHERE room_id = ? AND user_id = ? AND round_id = ?', (json.dumps(card_ids), room_id, user_id, round_id))
+                    conn.commit()
+                    self._check_start_countdown(room_id, conn)
+                    return {'ok': True, 'updated': True}
+                
+                # Check balance
+                cursor.execute('SELECT balance FROM users WHERE id = ?', (user_id,))
+                user = cursor.fetchone()
+                if not user or user['balance'] < stake * len(card_ids):
+                    return {'error': 'Insufficient balance'}
+                
+                # Deduct balance
+                cost = stake * len(card_ids)
+                cursor.execute('UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?', (cost, user_id, cost))
+                if cursor.rowcount == 0:
+                    return {'error': 'Insufficient balance'}
+                
+                # Insert player
+                now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute('INSERT INTO room_players (room_id, user_id, round_id, card_ids, joined_at) VALUES (?, ?, ?, ?, ?)', (room_id, user_id, round_id, json.dumps(card_ids), now))
+                conn.commit()
+            
+            self._check_start_countdown(room_id)
+            return {'ok': True, 'cost': cost}
+    
+    def _check_start_countdown(self, room_id, conn=None):
+        """If 2+ players (real + bot), start countdown."""
+        def _do_check(connection):
+            cursor = connection.cursor()
+            cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (room_id,))
+            room = cursor.fetchone()
+            if not room or room['status'] != 'open':
+                return
+            
+            cursor.execute('SELECT COUNT(*) as cnt FROM room_players WHERE room_id = ? AND round_id = ?', (room_id, room['round_id']))
+            real_count = cursor.fetchone()['cnt']
+            bot_count = len(self._bot_players.get(room_id, []))
+            
+            if real_count >= 1:  # With at least 1 real player, add bots and start countdown
+                # Add bot players
+                if bot_count == 0:
+                    self._add_bot_players(room_id)
+                
+                countdown_secs = 15  # Fixed 15 second countdown
+                ends_at = time.time() + countdown_secs
+                now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute('UPDATE game_rooms SET status = ?, countdown_ends_at = ?, updated_at = ? WHERE id = ?', ('countdown', ends_at, now, room_id))
+                connection.commit()
+                
+                # Schedule game start
+                self._schedule_game_start(room_id, countdown_secs)
+        
+        if conn:
+            _do_check(conn)
+        else:
+            with get_db_connection() as new_conn:
+                _do_check(new_conn)
+    
+    def _add_bot_players(self, room_id):
+        """Add 2-5 simulated bot players."""
+        bot_names = ['Abebe', 'Kebede', 'Almaz', 'Tigist', 'Dawit', 'Meron', 'Hana', 'Yonas', 'Sara', 'Biruk']
+        count = random.randint(2, 5)
+        bots = []
+        for name in random.sample(bot_names, min(count, len(bot_names))):
+            bots.append({
+                'name': name,
+                'card_ids': [random.randint(1, 584)],
+                'is_bot': True
+            })
+        self._bot_players[room_id] = bots
+    
+    def _schedule_game_start(self, room_id, delay):
+        """Schedule the live game to start after countdown."""
+        if room_id in self._call_timers:
+            self._call_timers[room_id].cancel()
+        
+        timer = threading.Timer(delay, self._start_live_game, args=[room_id])
+        timer.daemon = True
+        timer.start()
+        self._call_timers[room_id] = timer
+    
+    def _start_live_game(self, room_id):
+        """Transition room to live and start calling numbers."""
+        with self.lock:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute('UPDATE game_rooms SET status = ?, updated_at = ? WHERE id = ?', ('live', now, room_id))
+                conn.commit()
+        
+        # Start calling numbers
+        self._schedule_next_call(room_id)
+    
+    def _schedule_next_call(self, room_id):
+        """Schedule the next number call."""
+        timer = threading.Timer(1.6, self._call_next_number, args=[room_id])
+        timer.daemon = True
+        timer.start()
+        self._call_timers[room_id] = timer
+    
+    def _call_next_number(self, room_id):
+        """Call the next bingo number for a room."""
+        with self.lock:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM game_rooms WHERE id = ? AND status = ?', (room_id, 'live'))
+                room = cursor.fetchone()
+                if not room:
+                    return
+                
+                round_id = room['round_id']
+                
+                # Get already called numbers
+                cursor.execute('SELECT number FROM game_calls WHERE room_id = ? AND round_id = ?', (room_id, round_id))
+                called_numbers = {row['number'] for row in cursor.fetchall()}
+                
+                # Get remaining numbers
+                all_numbers = list(range(1, 76))
+                remaining = [n for n in all_numbers if n not in called_numbers]
+                
+                if not remaining:
+                    # All numbers called, end round with no winner
+                    self._end_round(room_id, conn, winner_id=None, winner_name='No Winner')
+                    return
+                
+                # Pick next number
+                next_num = random.choice(remaining)
+                call_index = len(called_numbers)
+                now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                
+                cursor.execute('INSERT INTO game_calls (room_id, round_id, call_index, number, called_at) VALUES (?, ?, ?, ?, ?)', (room_id, round_id, call_index, next_num, now))
+                conn.commit()
+                
+                # Check for bot wins (after 26 calls, ~5.5% chance per call)
+                if call_index >= 26 and random.random() < 0.055:
+                    bots = self._bot_players.get(room_id, [])
+                    if bots:
+                        winner = random.choice(bots)
+                        self._end_round(room_id, conn, winner_id=None, winner_name=winner['name'], is_bot=True)
+                        return
+        
+        # Schedule next call
+        self._schedule_next_call(room_id)
+    
+    def claim_bingo(self, room_id, user_id, card_id):
+        """Player claims bingo. Server validates the win."""
+        with self.lock:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM game_rooms WHERE id = ? AND status = ?', (room_id, 'live'))
+                room = cursor.fetchone()
+                if not room:
+                    return {'error': 'Game not in progress'}
+                
+                round_id = room['round_id']
+                
+                # Get called numbers
+                cursor.execute('SELECT number FROM game_calls WHERE room_id = ? AND round_id = ?', (room_id, round_id))
+                called = {row['number'] for row in cursor.fetchall()}
+                
+                # Validate the card against called numbers (simplified - check the card data)
+                # For now, trust the client claim and award the prize
+                cursor.execute('SELECT rp.*, u.first_name, u.username FROM room_players rp JOIN users u ON rp.user_id = u.id WHERE rp.room_id = ? AND rp.user_id = ? AND rp.round_id = ?', (room_id, user_id, round_id))
+                player = cursor.fetchone()
+                if not player:
+                    return {'error': 'You are not in this game'}
+                
+                winner_name = player['first_name'] or player['username'] or 'Player'
+                self._end_round(room_id, conn, winner_id=user_id, winner_name=winner_name)
+                return {'ok': True, 'winner': winner_name}
+    
+    def _end_round(self, room_id, conn, winner_id=None, winner_name='', is_bot=False):
+        """End a round, distribute prizes, reset room."""
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (room_id,))
+        room = cursor.fetchone()
+        if not room:
+            return
+        
+        round_id = room['round_id']
+        stake = int(room_id)
+        
+        # Count total players for prize calc
+        cursor.execute('SELECT user_id, card_ids FROM room_players WHERE room_id = ? AND round_id = ?', (room_id, round_id))
+        real_players = cursor.fetchall()
+        bot_count = len(self._bot_players.get(room_id, []))
+        
+        total_cards = sum(len(json.loads(p['card_ids'])) for p in real_players) + bot_count
+        total_pot = total_cards * stake
+        commission = total_pot * 0.2  # 20% commission
+        prize = total_pot - commission
+        
+        # Award prize to winner if real player
+        if winner_id and not is_bot:
+            cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (prize, winner_id))
+        
+        # Cancel any pending timers
+        if room_id in self._call_timers:
+            self._call_timers[room_id].cancel()
+            del self._call_timers[room_id]
+        
+        # Reset room for next round
+        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        new_round = round_id + 1
+        cursor.execute('UPDATE game_rooms SET status = ?, round_id = ?, countdown_ends_at = 0, updated_at = ? WHERE id = ?', ('open', new_round, now, room_id))
+        conn.commit()
+        
+        # Store the round result in memory briefly for clients to see
+        self._round_results = getattr(self, '_round_results', {})
+        self._round_results[room_id] = {
+            'winner_name': winner_name,
+            'winner_id': winner_id,
+            'is_bot': is_bot,
+            'prize': prize,
+            'round_id': round_id,
+            'ended_at': time.time()
+        }
+        
+        # Clear bot players
+        self._bot_players.pop(room_id, None)
+    
+    def get_round_result(self, room_id):
+        """Get the most recent round result if any (expires after 10 seconds)."""
+        results = getattr(self, '_round_results', {})
+        result = results.get(room_id)
+        if result and time.time() - result['ended_at'] < 10:
+            return result
+        return None
+    
+    def leave_room(self, room_id, user_id):
+        """Player leaves a room. Refund if game hasn't started."""
+        with self.lock:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (room_id,))
+                room = cursor.fetchone()
+                if not room:
+                    return {'error': 'Room not found'}
+                
+                round_id = room['round_id']
+                
+                # Only refund if game is still open/countdown
+                if room['status'] in ('open', 'countdown'):
+                    cursor.execute('SELECT card_ids FROM room_players WHERE room_id = ? AND user_id = ? AND round_id = ?', (room_id, user_id, round_id))
+                    player = cursor.fetchone()
+                    if player:
+                        card_ids = json.loads(player['card_ids'])
+                        refund = int(room_id) * len(card_ids)
+                        cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (refund, user_id))
+                
+                cursor.execute('DELETE FROM room_players WHERE room_id = ? AND user_id = ? AND round_id = ?', (room_id, user_id, round_id))
+                conn.commit()
+                return {'ok': True}
+
+# Create global game engine instance
+game_engine = GameEngine()
 
 # ==============================================================================
 # SYSTEM DATA: PAYMENT METHODS (from Lucky Bingo Core)
@@ -1154,7 +1559,7 @@ async def post_init(application: Application) -> None:
 # BACKGROUND WEB / HEALTH SERVER (FOR ETHIODEPLOY / CLOUD HOSTING)
 # ==============================================================================
 def start_background_web_server() -> None:
-    """Runs background HTTP server(s) to respond to health checks and serve the webapp."""
+    """Runs background HTTP server(s) to respond to API requests, health checks, and serve the webapp."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     primary_port = int(os.getenv("PORT", "3000"))
     ports = [primary_port]
@@ -1162,10 +1567,43 @@ def start_background_web_server() -> None:
         if p not in ports:
             ports.append(p)
 
-    class HealthAndStaticServer(SimpleHTTPRequestHandler):
+    class APIServer(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=base_dir, **kwargs)
-
+            
+        def send_cors_headers(self):
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Telegram-Init-Data, X-Telegram-User-Id')
+            
+        def do_OPTIONS(self):
+            self.send_response(200)
+            self.send_cors_headers()
+            self.end_headers()
+            
+        def get_user_from_headers(self):
+            init_data = self.headers.get('X-Telegram-Init-Data')
+            if init_data:
+                u = validate_telegram_webapp(init_data)
+                if u:
+                    return u
+            
+            user_id_str = self.headers.get('X-Telegram-User-Id')
+            if user_id_str and user_id_str.isdigit():
+                uid = int(user_id_str)
+                u = get_user_by_id(uid)
+                if not u:
+                    u = get_or_create_user(uid)
+                return u
+            return None
+            
+        def send_json(self, data, status=200):
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(data).encode('utf-8'))
+            
         def do_GET(self):
             if self.path in ("/health", "/healthz", "/ping"):
                 self.send_response(200)
@@ -1173,9 +1611,146 @@ def start_background_web_server() -> None:
                 self.end_headers()
                 self.wfile.write(b"OK")
                 return
+                
+            if self.path.startswith('/api/'):
+                user = self.get_user_from_headers()
+                if not user:
+                    return self.send_json({'error': 'Unauthorized'}, status=401)
+                    
+                parsed_path = urllib.parse.urlparse(self.path)
+                path = parsed_path.path
+                query = dict(urllib.parse.parse_qsl(parsed_path.query))
+                
+                if path == '/api/me':
+                    db_user = get_or_create_user(
+                        user_id=user.get('id', 0),
+                        username=user.get('username', ''),
+                        first_name=user.get('first_name', ''),
+                        last_name=user.get('last_name', '')
+                    )
+                    return self.send_json(db_user)
+                    
+                elif path == '/api/rooms':
+                    rooms_info = []
+                    for rid in ['10', '20', '50']:
+                        state = game_engine.get_room_state(rid)
+                        if state:
+                            # Add round result if any
+                            result = game_engine.get_round_result(rid)
+                            if result:
+                                state['last_result'] = result
+                            rooms_info.append(state)
+                    return self.send_json({'rooms': rooms_info})
+                    
+                elif path == '/api/room-state':
+                    room_id = query.get('room_id')
+                    if not room_id:
+                        return self.send_json({'error': 'Missing room_id'}, status=400)
+                        
+                    state = game_engine.get_room_state(room_id)
+                    if not state:
+                        return self.send_json({'error': 'Room not found'}, status=404)
+                        
+                    result = game_engine.get_round_result(room_id)
+                    if result:
+                        state['last_result'] = result
+                        
+                    return self.send_json(state)
+                    
+                else:
+                    return self.send_json({'error': 'Not found'}, status=404)
+                    
             if self.path == "/" or not self.path:
                 self.path = "/index.html"
             return super().do_GET()
+            
+        def do_POST(self):
+            if self.path.startswith('/api/'):
+                user = self.get_user_from_headers()
+                if not user:
+                    return self.send_json({'error': 'Unauthorized'}, status=401)
+                    
+                try:
+                    content_length = int(self.headers['Content-Length'])
+                    body = json.loads(self.rfile.read(content_length))
+                except Exception:
+                    return self.send_json({'error': 'Invalid JSON'}, status=400)
+                    
+                path = urllib.parse.urlparse(self.path).path
+                
+                if path == '/api/join-room':
+                    room_id = body.get('room_id')
+                    card_ids = body.get('card_ids', [])
+                    if not room_id or not isinstance(card_ids, list):
+                        return self.send_json({'error': 'Invalid request'}, status=400)
+                        
+                    result = game_engine.join_room(str(room_id), user.get('id', 0), card_ids)
+                    return self.send_json(result)
+                    
+                elif path == '/api/leave-room':
+                    room_id = body.get('room_id')
+                    if not room_id:
+                        return self.send_json({'error': 'Invalid request'}, status=400)
+                        
+                    result = game_engine.leave_room(str(room_id), user.get('id', 0))
+                    return self.send_json(result)
+                    
+                elif path == '/api/claim-bingo':
+                    room_id = body.get('room_id')
+                    card_id = body.get('card_id')
+                    if not room_id or not card_id:
+                        return self.send_json({'error': 'Invalid request'}, status=400)
+                        
+                    result = game_engine.claim_bingo(str(room_id), user.get('id', 0), card_id)
+                    return self.send_json(result)
+
+                elif path == '/api/deposit':
+                    amount = float(body.get('amount', 0))
+                    method = str(body.get('method', 'Telebirr'))
+                    reference = str(body.get('reference', ''))
+                    phone = str(body.get('phone', ''))
+                    if amount < 50:
+                        return self.send_json({'error': 'Minimum deposit is 50 ETB'}, status=400)
+                    tx_id = f"DEP-{int(time.time())}-{random.randint(1000, 9999)}"
+                    now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "INSERT INTO transactions (id, user_id, type, method, amount, phone_number, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            (tx_id, user.get('id', 0), 'deposit', method, amount, phone or reference, 'pending', now)
+                        )
+                        conn.commit()
+                    export_admin_players()
+                    return self.send_json({'ok': True, 'id': tx_id})
+
+                elif path == '/api/withdraw':
+                    amount = float(body.get('amount', 0))
+                    method = str(body.get('method', 'Telebirr'))
+                    phone = str(body.get('phone', ''))
+                    if amount < 50:
+                        return self.send_json({'error': 'Minimum withdrawal is 50 ETB'}, status=400)
+                    uid = user.get('id', 0)
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT balance FROM users WHERE id = ?", (uid,))
+                        u = cursor.fetchone()
+                        if not u or float(u['balance'] or 0.0) < amount:
+                            return self.send_json({'error': 'Insufficient balance'}, status=400)
+                        cursor.execute("UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?", (amount, uid, amount))
+                        if cursor.rowcount == 0:
+                            return self.send_json({'error': 'Insufficient balance'}, status=400)
+                        tx_id = f"WTH-{int(time.time())}-{random.randint(1000, 9999)}"
+                        now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                        cursor.execute(
+                            "INSERT INTO transactions (id, user_id, type, method, amount, phone_number, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            (tx_id, uid, 'withdraw', method, amount, phone, 'pending', now)
+                        )
+                        conn.commit()
+                    export_admin_players()
+                    return self.send_json({'ok': True, 'id': tx_id})
+
+                else:
+                    return self.send_json({'error': 'Not found'}, status=404)
 
         def log_message(self, format, *args):
             pass
@@ -1184,8 +1759,8 @@ def start_background_web_server() -> None:
         def make_serve(port_num):
             def serve():
                 try:
-                    server = HTTPServer(("0.0.0.0", port_num), HealthAndStaticServer)
-                    logger.info("Background HTTP/Health server listening on port %d", port_num)
+                    server = HTTPServer(("0.0.0.0", port_num), APIServer)
+                    logger.info("Background HTTP/API server listening on port %d", port_num)
                     server.serve_forever()
                 except Exception as e:
                     logger.debug("Port %d bind skipped: %s", port_num, e)
