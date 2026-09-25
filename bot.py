@@ -1,5 +1,14 @@
 import os
+import sys
 import logging
+
+# Ensure stdout and stderr handle UTF-8 without crashing on Windows cp1252 consoles
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -193,18 +202,18 @@ def main() -> None:
     """Starts the bot."""
     if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
         logger.warning(
-            "⚠️ BOT_TOKEN is not set! Please edit BOT_TOKEN in bot.py or set the BOT_TOKEN environment variable."
+            "[WARNING] BOT_TOKEN is not set! Please edit BOT_TOKEN in bot.py or set the BOT_TOKEN environment variable."
         )
 
     # Initialize the Application
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Register handlers
-    app.add_handler(CommandHandler("start", start_command))
+    # Register handlers (handles /start, /Start, /help, /menu)
+    app.add_handler(CommandHandler(["start", "Start", "help", "menu"], start_command))
     app.add_handler(CallbackQueryHandler(button_callback))
 
     # Run the bot
-    print("🤖 Lucky Bingo Bot is starting...")
+    print("[INFO] Lucky Bingo Bot is starting... Polling for updates.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
