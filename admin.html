@@ -20,16 +20,20 @@
         </div>
 
         <div class="admin-user-card">
-          <div class="admin-avatar admin-avatar-orange">AD</div>
+          <div class="admin-avatar admin-avatar-orange" id="admin-user-avatar">AD</div>
           <div class="admin-user-copy">
-            <strong>Admin desk</strong>
-            <span>Super administrator</span>
+            <strong id="admin-user-name">Admin desk</strong>
+            <span id="admin-user-role">Super administrator</span>
           </div>
           <span class="admin-online-dot" aria-label="Online"></span>
         </div>
 
         <nav class="admin-nav" aria-label="Admin navigation">
           <span class="admin-nav-label">Workspace</span>
+          <a class="admin-nav-link" href="index.html" aria-label="Play Bingo in Game Lobby" style="color: #ff9800; font-weight: bold;">
+            <span class="admin-nav-icon" aria-hidden="true">🎮</span>
+            <span>Play Bingo</span>
+          </a>
           <a class="admin-nav-link is-active" href="#overview" data-section="overview">
             <span class="admin-nav-icon" aria-hidden="true">⌂</span>
             <span>Overview</span>
@@ -57,6 +61,10 @@
           <a class="admin-nav-link" href="#settings" data-section="settings">
             <span class="admin-nav-icon" aria-hidden="true">⚙</span>
             <span>Settings</span>
+          </a>
+          <a class="admin-nav-link" href="#deposit-accounts" data-section="deposit-accounts" id="nav-deposit-accounts" style="color: #27ae60; font-weight: 600;">
+            <span class="admin-nav-icon" aria-hidden="true">💳</span>
+            <span>Deposit Accounts</span>
           </a>
         </nav>
 
@@ -244,8 +252,98 @@
           </section>
 
           <section class="admin-section" id="admin-settings" data-page="settings">
-            <div class="admin-page-heading"><div><span class="admin-kicker">CONTROL CENTER</span><h1>Settings</h1><p>Set safe defaults for your operation. Changes are saved in this browser.</p></div><span class="admin-saved-label" id="settings-saved">All changes saved</span></div>
-            <div class="admin-settings-grid"><article class="admin-panel admin-settings-panel"><div class="admin-panel-heading"><div><span class="admin-panel-eyebrow">GAME DEFAULTS</span><h2>Round settings</h2></div></div><label class="admin-setting-row"><span><b>Commission rate</b><small>Percentage held from every prize pool</small></span><span class="admin-input-suffix"><input type="number" id="setting-commission" min="0" max="50" step="1" value="20" /><em>%</em></span></label><label class="admin-setting-row"><span><b>Auto-start threshold</b><small>Players required before a room starts</small></span><span class="admin-input-suffix"><input type="number" id="setting-threshold" min="2" max="500" step="1" value="10" /><em>players</em></span></label><label class="admin-setting-row"><span><b>Card-selection countdown</b><small>Players have this long to enter cards before the round starts</small></span><span class="admin-input-suffix"><input type="number" id="setting-countdown" min="10" max="600" step="5" value="60" /><em>seconds</em></span></label><label class="admin-setting-row"><span><b>Winning line pattern</b><small>Declare a winner after this many completed lines, or require a full house</small></span><select class="admin-select admin-select-small" id="setting-winning-pattern"><option value="1">1 line</option><option value="2">2 lines</option><option value="3">3 lines</option><option value="4">4 lines</option><option value="full-house">Full house / full card</option></select></label><label class="admin-setting-row"><span><b>Starting bonus</b><small>Give each new player a one-time Birr bonus when they first open the game</small></span><span class="admin-input-suffix"><input type="number" id="setting-starting-bonus" min="0" max="100000" step="1" value="50" /><em>ETB</em></span></label><label class="admin-setting-row"><span><b>Enable starting bonus</b><small>Turn the new-player bonus on or off</small></span><input type="checkbox" class="admin-switch" id="setting-starting-bonus-enabled" checked /></label><label class="admin-setting-row"><span><b>Auto-call numbers</b><small>Allow rooms to call numbers automatically</small></span><input type="checkbox" class="admin-switch" id="setting-autocall" checked /></label><label class="admin-setting-row"><span><b>Maintenance mode</b><small>Temporarily prevent new games from starting</small></span><input type="checkbox" class="admin-switch is-danger" id="setting-maintenance" /></label></article><article class="admin-panel admin-settings-panel"><div class="admin-panel-heading"><div><span class="admin-panel-eyebrow">SECURITY &amp; ALERTS</span><h2>Admin preferences</h2></div></div><label class="admin-setting-row"><span><b>Transaction alerts</b><small>Notify this desk about new finance requests</small></span><input type="checkbox" class="admin-switch" id="setting-transactions" checked /></label><label class="admin-setting-row"><span><b>Large withdrawal review</b><small>Require a second review above 5,000 ETB</small></span><input type="checkbox" class="admin-switch" id="setting-large-withdrawal" checked /></label><label class="admin-setting-row"><span><b>Session timeout</b><small>Sign out after inactivity</small></span><select class="admin-select admin-select-small" id="setting-timeout"><option value="30">30 minutes</option><option value="60" selected>1 hour</option><option value="240">4 hours</option></select></label><div class="admin-security-note"><span aria-hidden="true">✓</span><div><b>Two-step verification is active</b><small>Your admin account is protected with an extra sign-in step.</small></div></div></article></div>
+            <div class="admin-page-heading">
+              <div>
+                <span class="admin-kicker">CONTROL CENTER</span>
+                <h1>Settings</h1>
+                <p>Set safe defaults for your operation. Changes are saved immediately.</p>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                <span class="admin-saved-label" id="settings-saved">All changes saved</span>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+              <a href="#settings-deposit-panel" class="admin-button admin-button-primary" style="text-decoration: none; font-size: 12px; padding: 7px 14px;">💳 Deposit Receiving Accounts</a>
+              <a href="#settings-round-panel" class="admin-button admin-button-soft" style="text-decoration: none; font-size: 12px; padding: 7px 14px;">⚙ Round Settings</a>
+            </div>
+
+            <div class="admin-settings-grid">
+              <article class="admin-panel admin-settings-panel" id="settings-deposit-panel" style="border: 2px solid #2f80ed; box-shadow: 0 4px 16px rgba(47, 128, 237, 0.08);">
+                <div class="admin-panel-heading">
+                  <div>
+                    <span class="admin-panel-eyebrow" style="color: #2f80ed; font-weight: 800;">PAYMENT METHODS</span>
+                    <h2 style="color: #1a4971;">Deposit receiving accounts</h2>
+                  </div>
+                  <span class="admin-chip admin-chip-green" style="font-weight: 700;">Live in player app</span>
+                </div>
+                <div style="padding: 11px 18px; background: rgba(47, 128, 237, 0.08); border-bottom: 1px solid #d8e5f5; font-size: 12px; color: #1a4971; line-height: 1.45; font-weight: 500;">
+                  💰 <b>Where to edit deposit numbers:</b> Enter the phone numbers and account holder names below. Players will transfer their deposits to these accounts when they tap <b>Telebirr</b>, <b>CBE Birr</b>, or <b>M-Pesa</b> in the game.
+                </div>
+                <label class="admin-setting-row">
+                  <span>
+                    <b>Telebirr receiving phone</b>
+                    <small>Phone number where players send Telebirr deposits</small>
+                  </span>
+                  <input type="text" class="admin-setting-input" id="setting-deposit-telebirr-phone" placeholder="0911 000 000" />
+                </label>
+                <label class="admin-setting-row">
+                  <span>
+                    <b>Telebirr account name</b>
+                    <small>Name registered on the Telebirr account</small>
+                  </span>
+                  <input type="text" class="admin-setting-input" id="setting-deposit-telebirr-name" placeholder="Lucky Bingo" />
+                </label>
+                <label class="admin-setting-row">
+                  <span>
+                    <b>CBE Birr receiving phone / account</b>
+                    <small>Phone or account number for CBE Birr deposits</small>
+                  </span>
+                  <input type="text" class="admin-setting-input" id="setting-deposit-cbebirr-phone" placeholder="1000 000 000" />
+                </label>
+                <label class="admin-setting-row">
+                  <span>
+                    <b>CBE Birr account name</b>
+                    <small>Name registered on the CBE Birr account</small>
+                  </span>
+                  <input type="text" class="admin-setting-input" id="setting-deposit-cbebirr-name" placeholder="Lucky Bingo CBE Birr" />
+                </label>
+                <label class="admin-setting-row">
+                  <span>
+                    <b>M-Pesa receiving phone</b>
+                    <small>Phone number for M-Pesa deposits</small>
+                  </span>
+                  <input type="text" class="admin-setting-input" id="setting-deposit-mpesa-phone" placeholder="0700 000 000" />
+                </label>
+                <label class="admin-setting-row">
+                  <span>
+                    <b>M-Pesa account name</b>
+                    <small>Name registered on the M-Pesa account</small>
+                  </span>
+                  <input type="text" class="admin-setting-input" id="setting-deposit-mpesa-name" placeholder="Lucky Bingo M-Pesa" />
+                </label>
+              </article>
+
+              <article class="admin-panel admin-settings-panel" id="settings-round-panel">
+                <div class="admin-panel-heading"><div><span class="admin-panel-eyebrow">GAME DEFAULTS</span><h2>Round settings</h2></div></div>
+                <label class="admin-setting-row"><span><b>Commission rate</b><small>Percentage held from every prize pool</small></span><span class="admin-input-suffix"><input type="number" id="setting-commission" min="0" max="50" step="1" value="20" /><em>%</em></span></label>
+                <label class="admin-setting-row"><span><b>Auto-start threshold</b><small>Players required before a room starts</small></span><span class="admin-input-suffix"><input type="number" id="setting-threshold" min="2" max="500" step="1" value="10" /><em>players</em></span></label>
+                <label class="admin-setting-row"><span><b>Card-selection countdown</b><small>Players have this long to enter cards before the round starts</small></span><span class="admin-input-suffix"><input type="number" id="setting-countdown" min="10" max="600" step="5" value="60" /><em>seconds</em></span></label>
+                <label class="admin-setting-row"><span><b>Winning line pattern</b><small>Declare a winner after this many completed lines, or require a full house</small></span><select class="admin-select admin-select-small" id="setting-winning-pattern"><option value="1">1 line</option><option value="2">2 lines</option><option value="3">3 lines</option><option value="4">4 lines</option><option value="full-house">Full house / full card</option></select></label>
+                <label class="admin-setting-row"><span><b>Starting bonus</b><small>Give each new player a one-time Birr bonus when they first open the game</small></span><span class="admin-input-suffix"><input type="number" id="setting-starting-bonus" min="0" max="100000" step="1" value="50" /><em>ETB</em></span></label>
+                <label class="admin-setting-row"><span><b>Enable starting bonus</b><small>Turn the new-player bonus on or off</small></span><input type="checkbox" class="admin-switch" id="setting-starting-bonus-enabled" checked /></label>
+                <label class="admin-setting-row"><span><b>Auto-call numbers</b><small>Allow rooms to call numbers automatically</small></span><input type="checkbox" class="admin-switch" id="setting-autocall" checked /></label>
+                <label class="admin-setting-row"><span><b>Maintenance mode</b><small>Temporarily prevent new games from starting</small></span><input type="checkbox" class="admin-switch is-danger" id="setting-maintenance" /></label>
+              </article>
+
+              <article class="admin-panel admin-settings-panel">
+                <div class="admin-panel-heading"><div><span class="admin-panel-eyebrow">SECURITY &amp; ALERTS</span><h2>Admin preferences</h2></div></div>
+                <label class="admin-setting-row"><span><b>Transaction alerts</b><small>Notify this desk about new finance requests</small></span><input type="checkbox" class="admin-switch" id="setting-transactions" checked /></label>
+                <label class="admin-setting-row"><span><b>Large withdrawal review</b><small>Require a second review above 5,000 ETB</small></span><input type="checkbox" class="admin-switch" id="setting-large-withdrawal" checked /></label>
+                <label class="admin-setting-row"><span><b>Session timeout</b><small>Sign out after inactivity</small></span><select class="admin-select admin-select-small" id="setting-timeout"><option value="30">30 minutes</option><option value="60" selected>1 hour</option><option value="240">4 hours</option></select></label>
+                <div class="admin-security-note"><span aria-hidden="true">✓</span><div><b>Two-step verification is active</b><small>Your admin account is protected with an extra sign-in step.</small></div></div>
+              </article>
+            </div>
           </section>
         </div>
       </main>
@@ -272,6 +370,7 @@
       <section class="admin-modal admin-modal-small" role="dialog" aria-modal="true" aria-labelledby="help-modal-title"><div class="admin-modal-heading"><div><span class="admin-panel-eyebrow">OPERATOR GUIDE</span><h2 id="help-modal-title">A safe admin workflow</h2></div><button type="button" class="admin-modal-close" data-close-modal="help-modal" aria-label="Close">×</button></div><div class="admin-guide-list"><div><b>1</b><span>Review deposit and withdrawal requests before approving a balance change.</span></div><div><b>2</b><span>Use the live room controls to pause a room if a payment or connection issue appears.</span></div><div><b>3</b><span>Block suspicious accounts and record the reason in the player note.</span></div><div><b>4</b><span>Export finance reports regularly for reconciliation.</span></div></div><div class="admin-modal-actions"><button type="button" class="admin-button admin-button-primary" data-close-modal="help-modal">Got it</button></div></section>
     </div>
 
+    <script src="players-data.js"></script>
     <script src="admin.js"></script>
   </body>
 </html>

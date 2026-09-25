@@ -4,8 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0a68ad" />
-    <title>Lucky Bingo — Game Rooms</title>
     <link rel="stylesheet" href="style.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="players-data.js"></script>
+  </head>
   <body class="is-lobby-active">
     <div class="lb-root">
       <div class="lb-frame">
@@ -34,7 +36,7 @@
                 <span class="lb-balance-arrow" aria-hidden="true">›</span>
               </button>
               <div class="lb-lobby-actions">
-                <a class="lb-admin-link" href="admin.html" aria-label="Open admin console">Admin</a>
+                <a class="lb-admin-link" id="admin-link" href="admin.html" aria-label="Open admin console" hidden style="display: none;">Admin</a>
                 <button type="button" class="lb-refresh" id="refresh-rooms">Refresh</button>
               </div>
             </div>

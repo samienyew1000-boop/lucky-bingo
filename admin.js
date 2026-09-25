@@ -10,46 +10,46 @@ const $ = (id) => document.getElementById(id);
 
 const DEFAULT_STATE = {
   metrics: {
-    totalPlayers: 1284,
-    verifiedPlayers: 1198,
-    newPlayers: 38,
-    blockedPlayers: 17,
-    idlePlayers: 86,
-    processedToday: 18460,
+    totalPlayers: 0,
+    verifiedPlayers: 0,
+    newPlayers: 0,
+    blockedPlayers: 0,
+    idlePlayers: 0,
+    processedToday: 0,
   },
   rooms: [
     {
       id: "10",
       stake: 10,
-      players: 98,
-      status: "live",
+      players: 0,
+      status: "waiting",
       enabled: true,
       roundId: "#LB-24090",
-      prizePool: 980,
-      lastCall: "B-32",
-      called: ["O-71", "I-24", "G-53", "B-9", "N-38", "O-64"],
+      prizePool: 0,
+      lastCall: "—",
+      called: [],
       color: "blue",
     },
     {
       id: "20",
       stake: 20,
-      players: 106,
-      status: "live",
+      players: 0,
+      status: "waiting",
       enabled: true,
       roundId: "#LB-24091",
-      prizePool: 3240,
-      lastCall: "G-47",
-      called: ["B-7", "O-72", "I-19", "N-33", "G-46", "B-12", "O-68", "I-26", "N-42", "G-55", "B-2", "O-63"],
+      prizePool: 0,
+      lastCall: "—",
+      called: [],
       color: "orange",
     },
     {
       id: "50",
       stake: 50,
-      players: 86,
+      players: 0,
       status: "waiting",
       enabled: true,
       roundId: "#LB-24089",
-      prizePool: 2150,
+      prizePool: 0,
       lastCall: "—",
       called: [],
       color: "purple",
@@ -65,16 +65,7 @@ const DEFAULT_STATE = {
     { id: "TX-1042", playerId: "LB-00384", player: "Tariku Fikre", type: "withdraw", method: "Bank account", amount: 1050, requested: "1h ago", status: "pending" },
     { id: "TX-1041", playerId: "LB-00762", player: "Liya Solomon", type: "deposit", method: "M-Pesa", amount: 1300, requested: "1h ago", status: "pending" },
   ],
-  players: [
-    { id: "LB-00482", name: "Abebe Kebede", email: "abebe.k@example.com", phone: "+251 911 284 602", balance: 1245, games: 48, lastActive: "2 min ago", status: "active", avatar: "blue", note: "" },
-    { id: "LB-00631", name: "Hana Tesfaye", email: "hana.t@example.com", phone: "+251 922 631 784", balance: 386, games: 32, lastActive: "8 min ago", status: "active", avatar: "purple", note: "" },
-    { id: "LB-00192", name: "Dawit Bekele", email: "dawit.b@example.com", phone: "+251 911 192 440", balance: 92, games: 17, lastActive: "24 min ago", status: "idle", avatar: "orange", note: "" },
-    { id: "LB-00814", name: "Selamawit Girma", email: "selamawit.g@example.com", phone: "+251 933 814 057", balance: 670, games: 64, lastActive: "31 min ago", status: "active", avatar: "green", note: "" },
-    { id: "LB-00271", name: "Yonas Alemu", email: "yonas.a@example.com", phone: "+251 911 271 830", balance: 51, games: 9, lastActive: "46 min ago", status: "active", avatar: "pink", note: "" },
-    { id: "LB-00905", name: "Meron Worku", email: "meron.w@example.com", phone: "+251 922 905 314", balance: 2180, games: 91, lastActive: "1 hour ago", status: "active", avatar: "blue", note: "High-value player" },
-    { id: "LB-00384", name: "Tariku Fikre", email: "tariku.f@example.com", phone: "+251 911 384 119", balance: 0, games: 5, lastActive: "Yesterday", status: "blocked", avatar: "purple", note: "Payment verification required" },
-    { id: "LB-00762", name: "Liya Solomon", email: "liya.s@example.com", phone: "+251 933 762 208", balance: 740, games: 26, lastActive: "Yesterday", status: "idle", avatar: "orange", note: "" },
-  ],
+  players: [],
   activities: [
     { kind: "finance", symbol: "↗", text: "Approved a deposit request for Hana Tesfaye", time: "8 min ago" },
     { kind: "game", symbol: "◉", text: "Started round #LB-24091 in the 20 ETB room", time: "14 min ago" },
@@ -96,6 +87,12 @@ const DEFAULT_SETTINGS = {
   transactionAlerts: true,
   largeWithdrawal: true,
   timeout: "60",
+  depositTelebirrPhone: "0911 000 000",
+  depositTelebirrName: "Lucky Bingo",
+  depositCbeBirrPhone: "1000 000 000",
+  depositCbeBirrName: "Lucky Bingo CBE Birr",
+  depositMpesaPhone: "0700 000 000",
+  depositMpesaName: "Lucky Bingo M-Pesa",
 };
 
 let state = loadState();
@@ -113,33 +110,152 @@ function copy(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+const REAL_ROOM_PLAYERS_KEY = "lucky-bingo-real-room-players-v2";
+
+function getRealRoomParticipants() {
+  try {
+    const data = JSON.parse(localStorage.getItem(REAL_ROOM_PLAYERS_KEY) || "{}");
+    return typeof data === "object" && data !== null ? data : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function sanitizeRoomCatalog(rooms) {
+  if (!Array.isArray(rooms)) return copy(DEFAULT_STATE.rooms);
+  const participants = getRealRoomParticipants();
+  return rooms.map((room) => {
+    const realList = Array.isArray(participants[String(room.id)]) ? participants[String(room.id)] : [];
+    const count = realList.length;
+    return {
+      ...room,
+      players: count,
+      prizePool: count * (Number(room.stake) || 0),
+      status: room.status === "paused" ? "paused" : (count > 0 ? (room.status === "waiting" ? "waiting" : room.status) : "waiting"),
+    };
+  });
+}
+
+function syncRoomsWithRealParticipants() {
+  if (typeof state === "object" && state !== null && Array.isArray(state.rooms)) {
+    state.rooms = sanitizeRoomCatalog(state.rooms);
+  }
+}
+
 function loadRoomCatalog(legacyRooms = null) {
   try {
     const savedCatalog = JSON.parse(localStorage.getItem(ROOM_CATALOG_KEY) || "null");
-    if (Array.isArray(savedCatalog)) return savedCatalog;
+    if (Array.isArray(savedCatalog)) {
+      const sanitized = sanitizeRoomCatalog(savedCatalog);
+      localStorage.setItem(ROOM_CATALOG_KEY, JSON.stringify(sanitized));
+      return sanitized;
+    }
 
     if (Array.isArray(legacyRooms)) {
-      const migratedRooms = copy(legacyRooms);
+      const migratedRooms = sanitizeRoomCatalog(legacyRooms);
       localStorage.setItem(ROOM_CATALOG_KEY, JSON.stringify(migratedRooms));
       return migratedRooms;
     }
   } catch (error) {
     // Fall back to the legacy admin state or defaults when storage is unavailable.
   }
-  return copy(DEFAULT_STATE.rooms);
+  const defaults = copy(DEFAULT_STATE.rooms);
+  try {
+    localStorage.setItem(ROOM_CATALOG_KEY, JSON.stringify(defaults));
+  } catch (e) {}
+  return defaults;
+}
+
+const PLAYER_BALANCES_KEY = "lucky-bingo-player-balances-v1";
+
+function loadPlayerBalances() {
+  try {
+    return JSON.parse(localStorage.getItem(PLAYER_BALANCES_KEY) || "{}");
+  } catch (e) {
+    return {};
+  }
+}
+
+function savePlayerBalance(playerId, newBalance) {
+  try {
+    const balances = loadPlayerBalances();
+    balances[String(playerId)] = Number(newBalance);
+    localStorage.setItem(PLAYER_BALANCES_KEY, JSON.stringify(balances));
+  } catch (e) {}
+}
+
+function getLiveTelegramPlayers() {
+  if (Array.isArray(window.LUCKY_BINGO_PLAYERS)) {
+    return copy(window.LUCKY_BINGO_PLAYERS);
+  }
+  return [];
 }
 
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "null");
-    if (!saved) return { ...copy(DEFAULT_STATE), rooms: loadRoomCatalog() };
+    const livePlayers = getLiveTelegramPlayers();
+    const storedBalances = loadPlayerBalances();
+
+    // Merge live Telegram players with stored balance & profile state
+    let activePlayers = livePlayers.map((lp) => {
+      const savedP = saved?.players?.find((sp) => sp.id === lp.id || sp.phone === lp.phone);
+      const customBal = storedBalances[String(lp.id)];
+      return {
+        ...lp,
+        balance: typeof customBal === "number" ? customBal : (typeof savedP?.balance === "number" ? savedP.balance : lp.balance),
+        status: savedP?.status || lp.status,
+        games: savedP?.games ?? lp.games,
+        note: savedP?.note || lp.note,
+      };
+    });
+
+    // Also include any local players from saved state that aren't in livePlayers
+    if (saved && Array.isArray(saved.players)) {
+      saved.players.forEach((sp) => {
+        if (!activePlayers.some((ap) => ap.id === sp.id || (ap.phone && ap.phone === sp.phone))) {
+          const customBal = storedBalances[String(sp.id)];
+          activePlayers.push({
+            ...sp,
+            balance: typeof customBal === "number" ? customBal : sp.balance,
+          });
+        }
+      });
+    }
+
+    const total = activePlayers.length;
+    const verified = activePlayers.filter((p) => p.status === "active" || p.status === "verified").length;
+    const blocked = activePlayers.filter((p) => p.status === "blocked").length;
+    const idle = activePlayers.filter((p) => p.status === "idle").length;
+
+    const baseMetrics = {
+      totalPlayers: total,
+      verifiedPlayers: verified,
+      newPlayers: total,
+      blockedPlayers: blocked,
+      idlePlayers: idle,
+      processedToday: (saved && saved.metrics && saved.metrics.processedToday) || 0,
+    };
+
+    if (!saved) {
+      return {
+        ...copy(DEFAULT_STATE),
+        metrics: baseMetrics,
+        rooms: loadRoomCatalog(),
+        players: activePlayers,
+      };
+    }
+
     return {
       ...copy(DEFAULT_STATE),
       ...saved,
-      metrics: { ...copy(DEFAULT_STATE.metrics), ...(saved.metrics || {}) },
+      metrics: {
+        ...(saved.metrics || {}),
+        ...baseMetrics,
+      },
       rooms: loadRoomCatalog(saved.rooms),
       transactions: Array.isArray(saved.transactions) ? saved.transactions : copy(DEFAULT_STATE.transactions),
-      players: Array.isArray(saved.players) ? saved.players : copy(DEFAULT_STATE.players),
+      players: activePlayers,
       activities: Array.isArray(saved.activities) ? saved.activities : copy(DEFAULT_STATE.activities),
     };
   } catch (error) {
@@ -167,6 +283,20 @@ function saveState() {
 
 function saveSettings() {
   localStorage.setItem(ADMIN_SETTINGS_KEY, JSON.stringify(settings));
+  window.LUCKY_BINGO_PAYMENT_METHODS = {
+    Telebirr: {
+      accountName: settings.depositTelebirrName || "Lucky Bingo",
+      accountNumber: settings.depositTelebirrPhone || "0911 000 000",
+    },
+    "CBE Birr": {
+      accountName: settings.depositCbeBirrName || "Lucky Bingo CBE Birr",
+      accountNumber: settings.depositCbeBirrPhone || "1000 000 000",
+    },
+    "M-Pesa": {
+      accountName: settings.depositMpesaName || "Lucky Bingo M-Pesa",
+      accountNumber: settings.depositMpesaPhone || "0700 000 000",
+    },
+  };
 }
 
 function escapeHTML(value) {
@@ -223,17 +353,23 @@ function showToast(text, kind = "success") {
 }
 
 function showSection(name, updateHash = true) {
+  const isDepositShortcut = name === "deposit-accounts";
   const valid = ["overview", "live", "transactions", "players", "reports", "settings"];
-  const page = valid.includes(name) ? name : "overview";
+  const page = isDepositShortcut ? "settings" : (valid.includes(name) ? name : "overview");
   document.querySelectorAll(".admin-section").forEach((section) => {
     section.classList.toggle("is-active", section.dataset.page === page);
   });
   document.querySelectorAll(".admin-nav-link[data-section]").forEach((link) => {
-    link.classList.toggle("is-active", link.dataset.section === page);
+    link.classList.toggle("is-active", link.dataset.section === (isDepositShortcut ? "deposit-accounts" : page));
   });
-  const label = document.querySelector(`.admin-nav-link[data-section="${page}"] span:last-child`);
-  if ($("current-section-label")) $("current-section-label").textContent = label ? label.textContent : page;
-  if (updateHash && window.location.hash !== `#${page}`) history.replaceState(null, "", `#${page}`);
+  const label = document.querySelector(`.admin-nav-link[data-section="${isDepositShortcut ? "deposit-accounts" : page}"] span:last-child`);
+  if ($("current-section-label")) $("current-section-label").textContent = label ? label.textContent : (isDepositShortcut ? "Deposit Accounts" : page);
+  if (updateHash && window.location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
+  if (isDepositShortcut) {
+    setTimeout(() => {
+      document.getElementById("settings-deposit-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 40);
+  }
   if (page === "live") {
     renderLive();
     startLiveTimer();
@@ -244,6 +380,7 @@ function showSection(name, updateHash = true) {
 }
 
 function renderDashboard() {
+  syncRoomsWithRealParticipants();
   const online = state.rooms.filter((room) => room.status === "live" && room.enabled).reduce((total, room) => total + room.players, 0);
   $("stat-players").textContent = fmt(state.metrics.totalPlayers);
   $("stat-online").textContent = fmt(online);
@@ -467,7 +604,7 @@ function startNewRound(room = currentRoom()) {
   room.called = [];
   room.lastCall = "—";
   room.status = "live";
-  room.prizePool = Math.max(room.stake * room.players, room.stake);
+  room.prizePool = (Number(room.players) || 0) * (Number(room.stake) || 0);
   addActivity(`Started ${room.roundId} in the ${room.stake} ETB room`, "game", "◉");
   saveState();
   renderAll();
@@ -545,11 +682,61 @@ function updateTransaction(id, nextStatus) {
   if (!transaction || transaction.status !== "pending") return;
   transaction.status = nextStatus;
   transaction.processedAt = "just now";
-  if (nextStatus === "approved") state.metrics.processedToday += transaction.amount;
-  addActivity(`${nextStatus === "approved" ? "Approved" : "Rejected"} ${transaction.type} request ${transaction.id} for ${transaction.player}`, "finance", nextStatus === "approved" ? "✓" : "×");
+  const amount = Number(transaction.amount) || 0;
+
+  // Find corresponding player record
+  let player = state.players.find((p) =>
+    (transaction.playerId && String(p.id) === String(transaction.playerId)) ||
+    (transaction.phone && String(p.phone) === String(transaction.phone)) ||
+    (transaction.player && p.name && p.name.toLowerCase() === transaction.player.toLowerCase())
+  );
+
+  const curLocalBal = Number(localStorage.getItem("lucky-bingo-balance") || 0);
+
+  if (nextStatus === "approved") {
+    state.metrics.processedToday = (Number(state.metrics.processedToday) || 0) + amount;
+
+    if (transaction.type === "deposit") {
+      // 1. Credit player balance in admin state
+      if (player) {
+        player.balance = (Number(player.balance) || 0) + amount;
+        savePlayerBalance(player.id, player.balance);
+      }
+      // 2. Credit active player game wallet in localStorage
+      const nextBal = curLocalBal + amount;
+      localStorage.setItem("lucky-bingo-balance", String(nextBal));
+    } else if (transaction.type === "withdraw") {
+      // 1. Debit player balance in admin state
+      if (player) {
+        player.balance = Math.max(0, (Number(player.balance) || 0) - amount);
+        savePlayerBalance(player.id, player.balance);
+      }
+      // 2. If not already held by player game UI upon submission, debit game wallet
+      if (!transaction.heldFromBalance) {
+        const nextBal = Math.max(0, curLocalBal - amount);
+        localStorage.setItem("lucky-bingo-balance", String(nextBal));
+      }
+    }
+  } else if (nextStatus === "rejected") {
+    // If a withdrawal was held from player balance upon request, refund it upon rejection!
+    if (transaction.type === "withdraw" && transaction.heldFromBalance) {
+      if (player) {
+        player.balance = (Number(player.balance) || 0) + amount;
+        savePlayerBalance(player.id, player.balance);
+      }
+      const nextBal = curLocalBal + amount;
+      localStorage.setItem("lucky-bingo-balance", String(nextBal));
+    }
+  }
+
+  addActivity(
+    `${nextStatus === "approved" ? "Approved" : "Rejected"} ${transaction.type} request ${transaction.id} for ${transaction.player} (${fmt(amount)} ETB)`,
+    "finance",
+    nextStatus === "approved" ? "✓" : "×"
+  );
   saveState();
   renderAll();
-  showToast(`${transaction.type === "deposit" ? "Deposit" : "Withdrawal"} ${nextStatus}.`);
+  showToast(`${transaction.type === "deposit" ? "Deposit" : "Withdrawal"} of ${fmt(amount)} ETB ${nextStatus}.`);
 }
 
 function renderPlayers() {
@@ -574,7 +761,20 @@ function playerRow(player) {
   return `<tr><td><div class="admin-player-cell"><span class="admin-player-avatar avatar-${escapeHTML(player.avatar)}">${initials(player.name)}</span><span><strong>${escapeHTML(player.name)}</strong><small>${escapeHTML(player.id)}</small></span></div></td><td><div class="admin-contact-cell"><span>${escapeHTML(player.email)}</span><small>${escapeHTML(player.phone)}</small></div></td><td><strong class="admin-table-amount">${money(player.balance)}</strong></td><td>${fmt(player.games)}</td><td>${escapeHTML(player.lastActive)}</td><td><span class="admin-status-pill is-${escapeHTML(player.status)}">${escapeHTML(statusLabel)}</span></td><td><div class="admin-action-menu"><button type="button" class="admin-action-menu-button" data-player-menu="${escapeHTML(player.id)}" aria-label="Actions for ${escapeHTML(player.name)}">•••</button><div class="admin-action-menu-list"><button type="button" data-player-action="edit" data-id="${escapeHTML(player.id)}">Edit player</button><button type="button" data-player-action="password" data-id="${escapeHTML(player.id)}">Change password</button><button type="button" class="${isBlocked ? "" : "is-danger"}" data-player-action="${isBlocked ? "unblock" : "block"}" data-id="${escapeHTML(player.id)}">${isBlocked ? "Unblock account" : "Block account"}</button></div></div></td></tr>`;
 }
 
+function renderAdminProfile() {
+  const admin = window.LUCKY_BINGO_ADMIN;
+  if (!admin) return;
+  const nameEl = $("admin-user-name");
+  const roleEl = $("admin-user-role");
+  const avatarEl = $("admin-user-avatar");
+  if (nameEl && admin.name) nameEl.textContent = admin.name;
+  if (roleEl && admin.username) roleEl.textContent = `Super administrator (${admin.username})`;
+  if (avatarEl && admin.name) avatarEl.textContent = initials(admin.name);
+}
+
 function renderAll() {
+  syncRoomsWithRealParticipants();
+  renderAdminProfile();
   renderDashboard();
   renderLive();
   renderTransactions();
@@ -729,13 +929,20 @@ function bindSettings() {
     "setting-transactions": "transactionAlerts",
     "setting-large-withdrawal": "largeWithdrawal",
     "setting-timeout": "timeout",
+    "setting-deposit-telebirr-phone": "depositTelebirrPhone",
+    "setting-deposit-telebirr-name": "depositTelebirrName",
+    "setting-deposit-cbebirr-phone": "depositCbeBirrPhone",
+    "setting-deposit-cbebirr-name": "depositCbeBirrName",
+    "setting-deposit-mpesa-phone": "depositMpesaPhone",
+    "setting-deposit-mpesa-name": "depositMpesaName",
   };
   Object.entries(values).forEach(([id, key]) => {
     const input = $(id);
     if (!input) return;
     if (input.type === "checkbox") input.checked = Boolean(settings[key]);
-    else input.value = settings[key];
-    input.addEventListener("change", () => {
+    else input.value = settings[key] || "";
+
+    const onUpdate = (isFinal = true) => {
       settings[key] = input.type === "checkbox" ? input.checked : input.value;
       if (input.type === "number") settings[key] = Number(input.value);
       if (key === "winningPattern") settings[key] = WINNING_PATTERN_OPTIONS.includes(settings[key]) ? settings[key] : DEFAULT_SETTINGS.winningPattern;
@@ -747,8 +954,13 @@ function bindSettings() {
         if (settings.autoCall && document.querySelector("#admin-live.is-active")) startLiveTimer();
         else stopLiveTimer();
       }
-      showToast("Settings saved.");
-    });
+      if (isFinal) showToast("Settings saved.");
+    };
+
+    input.addEventListener("change", () => onUpdate(true));
+    if (input.type === "text") {
+      input.addEventListener("input", () => onUpdate(false));
+    }
   });
 }
 

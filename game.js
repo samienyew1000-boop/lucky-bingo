@@ -30,9 +30,9 @@ const PAYMENT_METHODS = Object.freeze({
 });
 
 const ROOMS = [
-  { id: "10", stake: 10, players: 304, status: "live" },
-  { id: "20", stake: 20, players: 1030, status: "live" },
-  { id: "25", stake: 25, players: 0, status: "live" },
+  { id: "10", stake: 10, players: 0, status: "waiting" },
+  { id: "20", stake: 20, players: 0, status: "waiting" },
+  { id: "50", stake: 50, players: 0, status: "waiting" },
 ];
 
 const DEFAULT_LAST_WINNING_CARDS = Object.freeze([
@@ -208,36 +208,78 @@ function rememberWinningCard(stakeValue, cardId, name, prize) {
   saveLastWinningCards();
 }
 
+const REAL_ROOM_PLAYERS_KEY = "lucky-bingo-real-room-players-v2";
+
+function getRealRoomParticipants() {
+  try {
+    const data = JSON.parse(localStorage.getItem(REAL_ROOM_PLAYERS_KEY) || "{}");
+    return typeof data === "object" && data !== null ? data : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function registerRealPlayerInRoom(roomId) {
+  try {
+    const profile = getActivePlayerProfile();
+    const map = getRealRoomParticipants();
+    const currentList = Array.isArray(map[String(roomId)]) ? map[String(roomId)] : [];
+    if (!currentList.includes(profile.id)) {
+      map[String(roomId)] = [...currentList, profile.id];
+      localStorage.setItem(REAL_ROOM_PLAYERS_KEY, JSON.stringify(map));
+    }
+  } catch (e) {}
+}
+
+function unregisterRealPlayerFromRoom(roomId) {
+  try {
+    const profile = getActivePlayerProfile();
+    const map = getRealRoomParticipants();
+    const currentList = Array.isArray(map[String(roomId)]) ? map[String(roomId)] : [];
+    map[String(roomId)] = currentList.filter((id) => id !== profile.id);
+    localStorage.setItem(REAL_ROOM_PLAYERS_KEY, JSON.stringify(map));
+  } catch (e) {}
+}
+
+function sanitizeRoomCatalog(rooms) {
+  if (!Array.isArray(rooms)) return ROOMS;
+  const participants = getRealRoomParticipants();
+  return rooms.map((room) => {
+    const realList = Array.isArray(participants[String(room.id)]) ? participants[String(room.id)] : [];
+    const count = realList.length;
+    return {
+      ...room,
+      players: count,
+      prizePool: count * (Number(room.stake) || 0),
+      status: room.status === "paused" ? "paused" : (count > 0 ? (room.status === "waiting" ? "waiting" : room.status) : "waiting"),
+    };
+  });
+}
+
 function loadAdminRooms() {
   try {
     const savedCatalog = JSON.parse(localStorage.getItem(ROOM_CATALOG_KEY) || "null");
-    if (Array.isArray(savedCatalog)) return savedCatalog;
+    if (Array.isArray(savedCatalog)) {
+      const sanitized = sanitizeRoomCatalog(savedCatalog);
+      try { localStorage.setItem(ROOM_CATALOG_KEY, JSON.stringify(sanitized)); } catch (e) {}
+      return sanitized;
+    }
 
     const savedState = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "null");
     const legacyRooms = savedState && Array.isArray(savedState.rooms) ? savedState.rooms : null;
     if (legacyRooms) {
-      localStorage.setItem(ROOM_CATALOG_KEY, JSON.stringify(legacyRooms));
-      return legacyRooms;
+      const sanitized = sanitizeRoomCatalog(legacyRooms);
+      try { localStorage.setItem(ROOM_CATALOG_KEY, JSON.stringify(sanitized)); } catch (e) {}
+      return sanitized;
     }
   } catch (error) {
-    // Fall back to the built-in lobby rooms when storage is unavailable.
+    // Fall back to built-in lobby rooms when storage is unavailable.
   }
-  return null;
+  return ROOMS;
 }
 
 function savePlayerRoomPlayers(roomId, players) {
-  const adminRooms = loadAdminRooms();
-  if (!adminRooms) return;
-  const room = adminRooms.find((item) => String(item.id) === String(roomId));
-  if (!room) return;
-  room.players = players;
-  try {
-    localStorage.setItem(ROOM_CATALOG_KEY, JSON.stringify(adminRooms));
-    const savedState = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "{}");
-    localStorage.setItem(ADMIN_STATE_KEY, JSON.stringify({ ...savedState, rooms: adminRooms }));
-  } catch (error) {
-    // Player registration animation is non-critical when storage is unavailable.
-  }
+  // Player counts are strictly tied to real participants
 }
 
 function getLobbyRooms() {
@@ -262,10 +304,10 @@ function roomSourceStatus(room) {
   const adminRoom = adminRooms?.find((item) => String(item.id) === String(room.id));
   if (adminRoom) {
     if (adminRoom.enabled === false) return "paused";
-    if (adminRoom.status === "live" || adminRoom.status === "paused") return adminRoom.status;
-    if (adminRoom.status === "waiting") return "waiting";
+    if (adminRoom.status === "paused") return "paused";
+    if (adminRoom.players > 0 && adminRoom.status === "live") return "live";
   }
-  return room.status || "waiting";
+  return "waiting";
 }
 
 function roomRoundKey(room) {
@@ -301,24 +343,6 @@ function roomDisplayState(room, now = Date.now()) {
   const roomKey = String(room.id);
   let lifecycle = roomLifecycle[roomKey];
 
-  if (sourceStatus === "live") {
-    const lifecycleKey = roomLifecycleKey(roundKey, "admin");
-    if (!lifecycle || lifecycle.sourceStatus !== sourceStatus || lifecycle.roundKey !== roundKey || lifecycle.phase !== "live" || lifecycle.lifecycleKey !== lifecycleKey) {
-      lifecycle = {
-        sourceStatus,
-        roundId,
-        roundKey,
-        lifecycleKey,
-        phase: "live",
-        startedAt: now,
-        adminControlled: true,
-      };
-      roomLifecycle[roomKey] = lifecycle;
-      saveRoomLifecycle();
-    }
-    return { type: "live", label: "Active game", ariaLabel: "Active game", roundKey: lifecycle.lifecycleKey };
-  }
-
   if (sourceStatus === "paused") {
     const lifecycleKey = roomLifecycleKey(roundKey, "admin");
     if (!lifecycle || lifecycle.sourceStatus !== sourceStatus || lifecycle.roundKey !== roundKey || lifecycle.phase !== "paused" || lifecycle.lifecycleKey !== lifecycleKey) {
@@ -328,6 +352,44 @@ function roomDisplayState(room, now = Date.now()) {
     }
     return { type: "paused", label: "Paused", ariaLabel: "Game paused", roundKey: lifecycle.lifecycleKey };
   }
+
+  // When room has 0 players or is waiting, it displays the countdown and allows Play
+  if (sourceStatus !== "live" || room.players === 0) {
+    if (
+      !lifecycle ||
+      lifecycle.sourceStatus !== "waiting" ||
+      !["countdown"].includes(lifecycle.phase) ||
+      !lifecycle.lifecycleKey ||
+      !Number.isFinite(Number(lifecycle.cycle)) ||
+      (lifecycle.phase === "countdown" && !Number.isFinite(Number(lifecycle.startsAt)))
+    ) {
+      lifecycle = createRoomCountdown(room, now, lifecycle);
+    }
+    const safeLeft = Math.max(0, Math.ceil((Number(lifecycle.startsAt) - now) / 1000));
+    return {
+      type: "countdown",
+      label: formatCountdown(safeLeft),
+      ariaLabel: `Starts in ${formatCountdown(safeLeft)}`,
+      startsAt: lifecycle.startsAt,
+      roundKey: lifecycle.lifecycleKey,
+    };
+  }
+
+  const lifecycleKey = roomLifecycleKey(roundKey, "admin");
+  if (!lifecycle || lifecycle.sourceStatus !== sourceStatus || lifecycle.roundKey !== roundKey || lifecycle.phase !== "live" || lifecycle.lifecycleKey !== lifecycleKey) {
+    lifecycle = {
+      sourceStatus,
+      roundId,
+      roundKey,
+      lifecycleKey,
+      phase: "live",
+      startedAt: now,
+      adminControlled: true,
+    };
+    roomLifecycle[roomKey] = lifecycle;
+    saveRoomLifecycle();
+  }
+  return { type: "live", label: "Active game", ariaLabel: "Active game", roundKey: lifecycle.lifecycleKey };
 
   if (
     !lifecycle ||
@@ -438,12 +500,88 @@ function letterFor(n) {
   return "";
 }
 
+function checkAdminAccess() {
+  const adminBtn = $("admin-link") || document.querySelector(".lb-admin-link");
+  if (!adminBtn) return;
+
+  let isAdmin = false;
+
+  // 1. Check URL parameters (?role=admin or ?admin=1 or ?u=5663531258)
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const roleParam = (searchParams.get("role") || hashParams.get("role") || "").toLowerCase();
+    const adminParam = searchParams.get("admin") || hashParams.get("admin");
+    const uParam = searchParams.get("u") || searchParams.get("uid") || hashParams.get("u");
+
+    if (roleParam === "admin" || adminParam === "1" || uParam === "5663531258") {
+      isAdmin = true;
+      try { sessionStorage.setItem("lb_is_admin", "1"); } catch (e) {}
+    }
+  } catch (e) {}
+
+  // 2. Check Telegram WebApp user identity
+  try {
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready?.();
+      tg.expand?.();
+      const user = tg.initDataUnsafe?.user;
+      if (user) {
+        const uid = String(user.id || "");
+        const uname = String(user.username || "").toLowerCase();
+        if (uid === "5663531258" || uname === "samtesfa19") {
+          isAdmin = true;
+          try { sessionStorage.setItem("lb_is_admin", "1"); } catch (e) {}
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 3. Check against window.LUCKY_BINGO_ADMIN from players-data.js
+  if (!isAdmin && window.LUCKY_BINGO_ADMIN) {
+    try {
+      const cfgUname = String(window.LUCKY_BINGO_ADMIN.username || "").replace(/^@/, "").toLowerCase();
+      const currentTgUname = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.username || "").toLowerCase();
+      if (cfgUname && currentTgUname && currentTgUname === cfgUname) {
+        isAdmin = true;
+        try { sessionStorage.setItem("lb_is_admin", "1"); } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
+  // 4. Check sessionStorage cache
+  if (!isAdmin) {
+    try {
+      if (sessionStorage.getItem("lb_is_admin") === "1") {
+        const currentUid = String(window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "");
+        if (currentUid && currentUid !== "5663531258") {
+          sessionStorage.removeItem("lb_is_admin");
+          isAdmin = false;
+        } else {
+          isAdmin = true;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Toggle button visibility: ONLY the authorized admin sees this button!
+  if (isAdmin) {
+    adminBtn.hidden = false;
+    adminBtn.style.display = "";
+  } else {
+    adminBtn.hidden = true;
+    adminBtn.style.display = "none";
+  }
+}
+
 function showView(name) {
   Object.entries(views).forEach(([key, el]) => el.classList.toggle("is-on", key === name));
   document.body.classList.toggle("is-selection-active", name === "pick");
   document.body.classList.toggle("is-game-active", name === "game");
   document.body.classList.toggle("is-lobby-active", name === "lobby");
   if (name === "lobby") {
+    checkAdminAccess();
     startRoomUpdates();
     startRoomStatusUpdates();
   } else {
@@ -806,7 +944,9 @@ function ensureCard(id) {
 }
 
 function prizePool() {
-  return stake * (selected.size + botPlayers);
+  const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
+  const count = room ? Math.max(selected.size, room.players) : selected.size;
+  return stake * count;
 }
 
 function canAfford(roomStake) {
@@ -814,13 +954,15 @@ function canAfford(roomStake) {
 }
 
 function calculateDerash(players, roomStake) {
-  return Math.floor(players * roomStake * (1 - COMMISSION_RATE));
+  const p = Number(players) || 0;
+  if (p <= 0) return 0;
+  return Math.floor(p * roomStake * (1 - COMMISSION_RATE));
 }
 
 function renderPickRoomSummary() {
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
   const roomStake = room?.stake || stake;
-  const playerCount = room ? room.players + (selected.size ? 1 : 0) : 0;
+  const playerCount = room ? Math.max(selected.size ? 1 : 0, room.players) : (selected.size ? 1 : 0);
   const available = cardNumbers.length ? Math.max(0, cardNumbers.length - takenByOthers.size - selected.size) : 0;
   const title = $("pick-room-title");
   const entry = $("pick-entry");
@@ -873,9 +1015,9 @@ function updateGameWaiting() {
 
 function updateGameSummary() {
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
-  const players = room ? room.players + (selected.size ? 1 : 0) : selected.size + botPlayers;
+  const players = room ? Math.max(selected.size ? 1 : 0, room.players) : (selected.size ? 1 : 0);
   const roomStake = room?.stake || stake;
-  const derash = room ? calculateDerash(players, roomStake) : calculateDerash(players, roomStake);
+  const derash = calculateDerash(players, roomStake);
   const roundId = room?.roundId || activeRoomId || "—";
   const derashEl = $("game-derash");
   const playersEl = $("game-players");
@@ -975,26 +1117,18 @@ function setGameWaitingState(waiting) {
 }
 
 function updateRoomRegistrations() {
-  if (!views.lobby.classList.contains("is-on")) return;
-
-  const rooms = getLobbyRooms().filter((room) => roomSourceStatus(room) === "live");
-  if (!rooms.length) return;
-
-  const room = rooms[Math.floor(Math.random() * rooms.length)];
-  room.players += 1 + Math.floor(Math.random() * 2);
-  savePlayerRoomPlayers(room.id, room.players);
-  renderRooms();
+  // Disabled: Fake random player increments removed. Player count strictly reflects actual real users.
 }
 
 function startRoomUpdates() {
-  if (roomTimer !== null) return;
-  roomTimer = setInterval(updateRoomRegistrations, ROOM_UPDATE_MS);
+  // Mock player update timer disabled.
 }
 
 function stopRoomUpdates() {
-  if (roomTimer === null) return;
-  clearInterval(roomTimer);
-  roomTimer = null;
+  if (roomTimer !== null) {
+    clearInterval(roomTimer);
+    roomTimer = null;
+  }
 }
 
 function startRoomStatusUpdates() {
@@ -1091,16 +1225,21 @@ function enterRoom(roomId) {
     return;
   }
 
+  if (activeRoomId && activeRoomId !== String(room.id)) {
+    unregisterRealPlayerFromRoom(activeRoomId);
+  }
+
   clearInterval(pickTimer);
   clearInterval(callTimer);
   activeRoomId = String(room.id);
+  registerRealPlayerInRoom(room.id);
   gameWaiting = false;
   entryCharged = false;
   stake = room.stake;
   selected = new Set();
   selectedPreviewId = null;
   takenByOthers = new Set();
-  botPlayers = 8 + Math.floor(Math.random() * 16);
+  botPlayers = 0;
   setGameWaitingState(false);
   showView("pick");
   $("pick-stake").textContent = `${stake} ETB`;
@@ -1110,7 +1249,6 @@ function enterRoom(roomId) {
   buildCardGrid();
   renderCartelaPreview();
   startPickCountdown(state.startsAt, state.roundKey);
-  simulateOthersPicking();
 }
 
 function updatePickInfo() {
@@ -1327,8 +1465,10 @@ function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
       else startGame();
     } else {
       toast("NO CARD SELECTED", "lose");
+      if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
       activeRoomId = null;
       showView("lobby");
+      renderRooms();
     }
   };
 
@@ -1337,19 +1477,7 @@ function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
 }
 
 function simulateOthersPicking() {
-  const tick = () => {
-    if (!views.pick.classList.contains("is-on")) return;
-    for (let n = 0; n < 2; n++) {
-      const id = cardNumbers[Math.floor(Math.random() * cardNumbers.length)];
-      if (!selected.has(id) && !takenByOthers.has(id) && takenByOthers.size < 55) {
-        takenByOthers.add(id);
-      }
-    }
-    paintPicks();
-    updatePickInfo();
-    setTimeout(tick, 700 + Math.random() * 900);
-  };
-  setTimeout(tick, 500);
+  // Disabled: Cartelas are strictly selected by real human players only
 }
 
 function startGame() {
@@ -1367,6 +1495,7 @@ function startGame() {
     const sourceStatus = roomSourceStatus(room);
     if ((sourceStatus === "live" || sourceStatus === "paused") && pickLeft > 0) {
       toast(sourceStatus === "live" ? "ROUND IN PROGRESS" : "ROOM CLOSED", "lose");
+      if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
       activeRoomId = null;
       showView("lobby");
       renderRooms();
@@ -1503,6 +1632,7 @@ function returnToCardSelection() {
   hideRoundResult();
 
   if (!room) {
+    if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
     activeRoomId = null;
     setGameWaitingState(false);
     showView("lobby");
@@ -1512,6 +1642,7 @@ function returnToCardSelection() {
 
   const roomState = roomDisplayState(room);
   if (roomState.type !== "countdown") {
+    if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
     activeRoomId = null;
     setGameWaitingState(false);
     showView("lobby");
@@ -1520,8 +1651,9 @@ function returnToCardSelection() {
   }
 
   activeRoomId = String(room.id);
+  registerRealPlayerInRoom(room.id);
   stake = room.stake;
-  botPlayers = 8 + Math.floor(Math.random() * 16);
+  botPlayers = 0;
   setGameWaitingState(false);
   showView("pick");
   $("pick-stake").textContent = `${stake} ETB`;
@@ -1531,10 +1663,10 @@ function returnToCardSelection() {
   buildCardGrid();
   renderCartelaPreview();
   startPickCountdown(roomState.startsAt, roomState.roundKey);
-  simulateOthersPicking();
 }
 
 function finishActiveRoomRound() {
+  if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
   if (!room || roomSourceStatus(room) !== "waiting") return;
   scheduleRoomCountdown(room.id);
@@ -1982,10 +2114,6 @@ function nextCall() {
       ? "Called " + letter + "-" + n
       : "Called " + letter + "-" + n + " — tap it on your card";
   }
-
-  if (!claimed && called.length > 28 && Math.random() < 0.04) {
-    botWins();
-  }
 }
 
 function cellHit(card, index, hit) {
@@ -2066,22 +2194,7 @@ function claimBingo() {
 }
 
 function botWins() {
-  claimed = true;
-  playing = false;
-  clearInterval(callTimer);
-  finishActiveRoomRound();
-  const winnerName = BOT_WINNER_NAMES[Math.floor(Math.random() * BOT_WINNER_NAMES.length)] || "RAS";
-  const botCardId = winnerName === "RAS" ? 440 : (Math.floor(Math.random() * 900) + 1);
-  const botPrize = Math.max(stake * 20, Math.round(prizePool() || 3800));
-  roundOutcome = "lose";
-  roundWinnerName = winnerName;
-  roundWinCardId = botCardId;
-  $("bingo-btn").disabled = true;
-  $("game-status").textContent = `${winnerName} claimed Bingo`;
-  showRoundResult("lose", winnerName, "LINE", botCardId);
-  renderMineCards();
-  toast("SOMEONE ELSE WON", "lose");
-  showWinnerOverlay("lose", winnerName, botPrize, botCardId, "LINE");
+  // Disabled: Bots never claim fake bingo over real users
 }
 
 function leaveGame() {
@@ -2101,6 +2214,7 @@ function leaveGame() {
   gameWaiting = false;
   entryCharged = false;
   manualMarked = new Set();
+  if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
   activeRoomId = null;
   claimed = false;
   roundOutcome = null;
@@ -2168,9 +2282,39 @@ function showWalletFeedback(action, message, isError = false) {
   feedback.hidden = false;
 }
 
+function getDepositPaymentAccount(method) {
+  try {
+    const adminSettings = JSON.parse(localStorage.getItem(ADMIN_SETTINGS_KEY) || "{}");
+    if (method === "Telebirr" && adminSettings.depositTelebirrPhone) {
+      return {
+        accountName: adminSettings.depositTelebirrName || "Lucky Bingo",
+        accountNumber: adminSettings.depositTelebirrPhone || "0911 000 000",
+      };
+    }
+    if (method === "CBE Birr" && adminSettings.depositCbeBirrPhone) {
+      return {
+        accountName: adminSettings.depositCbeBirrName || "Lucky Bingo CBE Birr",
+        accountNumber: adminSettings.depositCbeBirrPhone || "1000 000 000",
+      };
+    }
+    if (method === "M-Pesa" && adminSettings.depositMpesaPhone) {
+      return {
+        accountName: adminSettings.depositMpesaName || "Lucky Bingo M-Pesa",
+        accountNumber: adminSettings.depositMpesaPhone || "0700 000 000",
+      };
+    }
+  } catch (e) {}
+
+  if (window.LUCKY_BINGO_PAYMENT_METHODS && window.LUCKY_BINGO_PAYMENT_METHODS[method]) {
+    return window.LUCKY_BINGO_PAYMENT_METHODS[method];
+  }
+
+  return PAYMENT_METHODS[method] || PAYMENT_METHODS.Telebirr;
+}
+
 function updateDepositAccount() {
   const method = walletState.deposit;
-  const account = PAYMENT_METHODS[method] || PAYMENT_METHODS.Telebirr;
+  const account = getDepositPaymentAccount(method);
   const methodLabel = $("deposit-selected-method");
   const accountName = $("deposit-account-name");
   const accountNumber = $("deposit-account-number");
@@ -2207,11 +2351,33 @@ function makeTransactionId() {
   return `TX-${String(Date.now()).slice(-6)}${Math.floor(10 + Math.random() * 90)}`;
 }
 
+function getActivePlayerProfile() {
+  try {
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    if (tgUser) {
+      const name = `${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim() || (tgUser.username ? `@${tgUser.username}` : `Player ${tgUser.id}`);
+      return {
+        id: `TG-${tgUser.id}`,
+        name: name,
+        username: tgUser.username ? `@${tgUser.username}` : "",
+      };
+    }
+  } catch (e) {}
+
+  if (Array.isArray(window.LUCKY_BINGO_PLAYERS) && window.LUCKY_BINGO_PLAYERS.length) {
+    const p = window.LUCKY_BINGO_PLAYERS[0];
+    return { id: p.id, name: p.name, username: p.username || "" };
+  }
+
+  return { id: PLAYER_ID, name: PLAYER_NAME, username: "" };
+}
+
 function saveWalletRequest(request) {
+  const profile = getActivePlayerProfile();
   const transaction = {
     id: makeTransactionId(),
-    playerId: PLAYER_ID,
-    player: PLAYER_NAME,
+    playerId: profile.id,
+    player: profile.name,
     type: request.type,
     method: request.method,
     amount: request.amount,
@@ -2221,6 +2387,7 @@ function saveWalletRequest(request) {
     reference: request.reference || "",
     accountName: request.accountName || "",
     accountNumber: request.accountNumber || "",
+    heldFromBalance: Boolean(request.heldFromBalance),
   };
 
   try {
@@ -2285,11 +2452,49 @@ function handleWithdrawSubmit(event) {
     return;
   }
 
-  const transaction = saveWalletRequest({ type: "withdraw", method, amount, phone });
-  showWalletFeedback("withdraw", `Withdrawal request ${transaction.id} was sent via ${method}. Admin approval is required before payment.`);
+  // Deduct the requested withdrawal amount immediately so player cannot double-spend
+  balance -= amount;
+  saveBalance();
+  renderBalance();
+
+  const transaction = saveWalletRequest({
+    type: "withdraw",
+    method,
+    amount,
+    phone,
+    heldFromBalance: true,
+  });
+
+  showWalletFeedback(
+    "withdraw",
+    `Withdrawal request ${transaction.id} for ${fmt(amount)} ETB was submitted. Amount is reserved until admin approval.`
+  );
   event.currentTarget.reset();
   toast("WITHDRAWAL REQUEST SENT", "win");
 }
+
+function syncPlayerWalletFromStorage() {
+  const stored = Number(localStorage.getItem(BALANCE_KEY));
+  if (Number.isFinite(stored) && stored !== balance) {
+    const diff = stored - balance;
+    balance = stored;
+    renderBalance();
+    if (diff > 0 && !playing) {
+      toast(`WALLET UPDATED: +${fmt(diff)} ETB`, "win");
+    }
+  }
+}
+
+window.addEventListener("storage", (event) => {
+  if (event.key === BALANCE_KEY || event.key === ADMIN_STATE_KEY) {
+    syncPlayerWalletFromStorage();
+  }
+});
+
+window.addEventListener("focus", syncPlayerWalletFromStorage);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) syncPlayerWalletFromStorage();
+});
 
 function copyText(text) {
   if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
@@ -2428,4 +2633,20 @@ if (window.location.hash === "#game" || window.location.search.includes("view=ga
 } else {
   showView("lobby");
 }
+
+checkAdminAccess();
+window.addEventListener("DOMContentLoaded", checkAdminAccess);
+window.addEventListener("load", checkAdminAccess);
+window.addEventListener("beforeunload", () => {
+  if (activeRoomId) {
+    unregisterRealPlayerFromRoom(activeRoomId);
+  }
+});
+window.addEventListener("storage", (event) => {
+  if (event.key === REAL_ROOM_PLAYERS_KEY || event.key === ROOM_CATALOG_KEY) {
+    if (views.lobby && views.lobby.classList.contains("is-on")) {
+      renderRooms();
+    }
+  }
+});
 

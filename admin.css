@@ -2320,6 +2320,25 @@
   font-style: normal;
 }
 
+.admin-setting-input {
+  width: 170px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #dce6ef;
+  border-radius: 6px;
+  background: #fff;
+  color: #47627d;
+  font-size: 11px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.admin-setting-input:focus {
+  border-color: #2f80ed;
+  box-shadow: 0 0 0 2px rgba(47, 128, 237, 0.15);
+}
+
 .admin-switch {
   position: relative;
   width: 31px;
