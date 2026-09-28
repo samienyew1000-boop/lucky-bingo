@@ -75,6 +75,56 @@ let called = [];
 let manualMarked = new Set();
 let autoMarkingEnabled = true;
 let soundEffectsEnabled = localStorage.getItem("lucky-bingo-sound-enabled") !== "0";
+const VOICE_STORAGE_KEY = "lucky-bingo-selected-voice";
+const SUPPORTED_VOICES = ["amharic", "oromgna", "tigregna"];
+let selectedVoice = (() => {
+  const saved = localStorage.getItem(VOICE_STORAGE_KEY);
+  return SUPPORTED_VOICES.includes(saved) ? saved : "amharic";
+})();
+
+const TIGREGNA_AUDIO_MAP = {
+  1: "tb1-u8-amm-y.mp3", 2: "tb2-DnFGXGK3.mp3", 3: "tb3-Ruwscjl-.mp3", 4: "tb4-D1Imot9q.mp3", 5: "tb5-Bdq-FmX7.mp3",
+  6: "tb6-rmjcnyBD.mp3", 7: "tb7-DXoZQcwX.mp3", 8: "tb8-BaCBaRbX.mp3", 9: "tb9-Bn8Heffg.mp3", 10: "tb10-Chf3-Np3.mp3",
+  11: "tb11-Cu4U_kn4.mp3", 12: "tb12-DWiFR0ih.mp3", 13: "tb13-DShnYfRm.mp3", 14: "tb14-SGbBsq8y.mp3", 15: "tb15-DQQkZxqa.mp3",
+  16: "ti16-wu_v3Nfq.mp3", 17: "ti17-PLUUsM_W.mp3", 18: "ti18-CfSEBXAN.mp3", 19: "ti19-Cjf6X9tP.mp3", 20: "ti20-ClazJcYh.mp3",
+  21: "ti21-DjzZpHhn.mp3", 22: "ti22-Bohak4jM.mp3", 23: "ti23-h7lBTSAS.mp3", 24: "ti24-CvbFRm3M.mp3", 25: "ti25-Dwo-U3lx.mp3",
+  26: "ti26-DiOzfuRw.mp3", 27: "ti27-Cul0pD3m.mp3", 28: "ti28-Dlv1DPi0.mp3", 29: "ti29-hvfZnt_H.mp3", 30: "ti30-CFlZtU2b.mp3",
+  31: "tn31-CEYw_eNg.mp3", 32: "tn32-DpB4DkAe.mp3", 33: "tn33-CW3_C5P4.mp3", 34: "tn34-ojDGH3oc.mp3", 35: "tn35-CQsTCEi3.mp3",
+  36: "tn36-CvdnN_ar.mp3", 37: "tn37-DuwWLKC_.mp3", 38: "tn38-D8wAGDK0.mp3", 39: "tn39-D0DO67xk.mp3", 40: "tn40-De2ic06h.mp3",
+  41: "tn41-CjTKEU3B.mp3", 42: "tn42-BPAmVAML.mp3", 43: "tn43-CtaQ0XgQ.mp3", 44: "tn44-PjzqJlZX.mp3", 45: "tn45-CgDded1V.mp3",
+  46: "tg46-ClGf6b-s.mp3", 47: "tg47-0t8CLx0l.mp3", 48: "tg48-DW9h3Sq5.mp3", 49: "tg49-0NwURg2A.mp3", 50: "tg50-m_irPmFo.mp3",
+  51: "tg51-FjtFdSX3.mp3", 52: "tg52-Chi7sIgr.mp3", 53: "tg53-DmOgIzDZ.mp3", 54: "tg54-CRP9EeFU.mp3", 55: "tg55-CXd4xjcU.mp3",
+  56: "tg56-D3gaoMuL.mp3", 57: "tg57-Du3ibdpN.mp3", 58: "tg58-Cn_dBl0Y.mp3", 59: "tg59-BmqFm1_u.mp3", 60: "tg60-maMs9xff.mp3",
+  61: "to61-CYJXWcAk.mp3", 62: "to62-CYd1MZpV.mp3", 63: "to63-CL-KyV9q.mp3", 64: "to64-D2vsehJw.mp3", 65: "to65-clFqryvR.mp3",
+  66: "to66-DfMmYJiI.mp3", 67: "to67-B8In0f2e.mp3", 68: "to68-D8hrQhaZ.mp3", 69: "to69-hDkOCBzt.mp3", 70: "to70-6pM3Ft9G.mp3",
+  71: "to71-BbIMP-_K.mp3", 72: "to72-CgcgqWCh.mp3", 73: "to73-DQOrK0nq.mp3", 74: "to74-Ck2l_K0y.mp3", 75: "to75-ttBiMotP.mp3"
+};
+
+function getSelectedVoice() {
+  return selectedVoice || "amharic";
+}
+
+function setVoice(voice, playSample = false) {
+  if (!SUPPORTED_VOICES.includes(voice)) return;
+  selectedVoice = voice;
+  localStorage.setItem(VOICE_STORAGE_KEY, voice);
+  document.querySelectorAll(".lb-voice-select").forEach((el) => {
+    el.value = voice;
+  });
+  const voiceNames = {
+    amharic: "Amharic (አማርኛ)",
+    oromgna: "Afaan Oromoo",
+    tigregna: "Tigrinya (ትግርኛ)",
+  };
+  toast(`VOICE: ${voiceNames[voice] || voice.toUpperCase()}`, "win");
+  if (playSample && soundEffectsEnabled) {
+    try {
+      const sample = new Audio(`assets/audio/${voice}/b1.mp3`);
+      sample.play().catch(() => {});
+    } catch (e) {}
+  }
+}
+
 let currentCallAudio = null;
 let callPool = [];
 let callTimer = null;
@@ -941,6 +991,14 @@ function renderMobilePanelContent(tab) {
           </label>
         </div>
         <div>
+          <span>Caller Voice / የደዋይ ድምፅ</span>
+          <select class="lb-voice-select" id="mobile-voice-select">
+            <option value="amharic" ${selectedVoice === "amharic" ? "selected" : ""}>አማርኛ (Amharic)</option>
+            <option value="oromgna" ${selectedVoice === "oromgna" ? "selected" : ""}>Afaan Oromoo</option>
+            <option value="tigregna" ${selectedVoice === "tigregna" ? "selected" : ""}>ትግርኛ (Tigrinya)</option>
+          </select>
+        </div>
+        <div>
           <span>Theme</span>
           <b>Midnight Black</b>
         </div>
@@ -955,6 +1013,7 @@ function renderMobilePanelContent(tab) {
       soundEffectsEnabled = event.currentTarget.checked;
       localStorage.setItem("lucky-bingo-sound-enabled", soundEffectsEnabled ? "1" : "0");
     });
+    $("mobile-voice-select")?.addEventListener("change", (event) => setVoice(event.currentTarget.value, true));
     return;
   }
 
@@ -2217,18 +2276,20 @@ function playCallVoice(number, letter) {
       currentCallAudio.pause();
       currentCallAudio.currentTime = 0;
     }
+    const voice = getSelectedVoice();
     const l = String(letter).toLowerCase();
     const u = String(letter).toUpperCase();
+    const tigregnaHashed = voice === "tigregna" && TIGREGNA_AUDIO_MAP[number] ? TIGREGNA_AUDIO_MAP[number] : null;
+
     const candidates = [
+      `assets/audio/${voice}/${l}${number}.mp3`,
+      `assets/audio/${voice}/${u}${number}.mp3`,
+      ...(tigregnaHashed ? [`assets/audio/tigregna/${tigregnaHashed}`] : []),
+      `assets/audio/${voice}/t${l}${number}.mp3`,
+      // Fallback to amharic if current voice misses a file
+      `assets/audio/amharic/${l}${number}.mp3`,
+      `assets/audio/amharic/${u}${number}.mp3`,
       `assets/audio/${l}${number}.mp3`,
-      `assets/audio/${u}${number}.mp3`,
-      `assets/audio/${number}.mp3`,
-      `assets/audio/${l}-${number}.mp3`,
-      `assets/audio/${u}-${number}.mp3`,
-      `assets/audio/${l}${number}.wav`,
-      `assets/audio/${number}.wav`,
-      `assets/audio/${l}${number}.m4a`,
-      `assets/audio/${number}.m4a`
     ];
     let candidateIndex = 0;
     const audio = new Audio();
@@ -2260,12 +2321,14 @@ function playBingoVoice() {
       currentBingoAudio.pause();
       currentBingoAudio.currentTime = 0;
     }
+    const voice = getSelectedVoice();
     const candidates = [
+      `assets/audio/${voice}/bingo.mp3`,
+      `assets/audio/${voice}/BINGO.mp3`,
+      "assets/audio/amharic/bingo.mp3",
       "assets/audio/bingo.mp3",
-      "assets/audio/BINGO.mp3",
       "assets/audio/bingo.wav",
       "assets/audio/bingo.m4a",
-      "assets/audio/bingo.ogg"
     ];
     let candidateIndex = 0;
     const audio = new Audio();
@@ -2293,12 +2356,13 @@ function playNopeVoice() {
       currentNopeAudio.pause();
       currentNopeAudio.currentTime = 0;
     }
+    const voice = getSelectedVoice();
     const candidates = [
+      `assets/audio/${voice}/nop.m4a`,
+      `assets/audio/${voice}/nop.mp3`,
+      "assets/audio/amharic/nop.m4a",
       "assets/audio/nop.m4a",
       "assets/audio/nop.mp3",
-      "assets/audio/nop.wav",
-      "assets/audio/nope.m4a",
-      "assets/audio/nope.mp3"
     ];
     let candidateIndex = 0;
     const audio = new Audio();
@@ -2784,6 +2848,11 @@ function bind() {
     voiceToggle.addEventListener("click", handleVoiceToggle);
     updateVoiceToggleUI();
   }
+  document.querySelectorAll(".lb-voice-select").forEach((el) => {
+    el.value = selectedVoice;
+  });
+  $("lobby-voice-select")?.addEventListener("change", (e) => setVoice(e.target.value, true));
+  $("game-voice-select")?.addEventListener("change", (e) => setVoice(e.target.value, true));
   $("balance-trigger").addEventListener("click", () => openWallet("deposit"));
   $("close-wallet").addEventListener("click", closeWallet);
   $("wallet-panel").addEventListener("click", (event) => {

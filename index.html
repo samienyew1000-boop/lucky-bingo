@@ -36,6 +36,11 @@
                 <span class="lb-balance-arrow" aria-hidden="true">›</span>
               </button>
               <div class="lb-lobby-actions">
+                <select class="lb-voice-select lb-lobby-voice-select" id="lobby-voice-select" aria-label="Select voice language">
+                  <option value="amharic">🗣️ አማርኛ</option>
+                  <option value="oromgna">🗣️ Oromoo</option>
+                  <option value="tigregna">🗣️ ትግርኛ</option>
+                </select>
                 <a class="lb-admin-link" id="admin-link" href="admin.html" aria-label="Open admin console" hidden style="display: none;">Admin</a>
                 <button type="button" class="lb-refresh" id="refresh-rooms">Refresh</button>
               </div>
@@ -196,6 +201,11 @@
             <line x1="17" y1="9" x2="23" y2="15"></line>
           </svg>
         </button>
+        <select class="lb-voice-select" id="game-voice-select" aria-label="Select caller voice">
+          <option value="amharic">አማርኛ</option>
+          <option value="oromgna">Oromoo</option>
+          <option value="tigregna">ትግርኛ</option>
+        </select>
         <label class="lb-auto-toggle"><input type="checkbox" id="auto-mark-toggle" checked /><span aria-hidden="true"></span><b>AUTO</b></label>
       </div>
 
