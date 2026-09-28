@@ -97,6 +97,9 @@ let roundWinnerName = "";
 let roundWinKind = "";
 let roundWinCardId = null;
 let walletState = { deposit: "Telebirr", withdraw: "Telebirr" };
+// The server owns room membership, counts, rounds, countdowns, and calls.
+// This map contains only the latest server snapshots used to render the UI.
+let serverRoomStates = {};
 
 // =============================================================================
 // SERVER-SIDE SYNCHRONIZATION (CROSS-DEVICE SYNC)
@@ -105,16 +108,50 @@ async function syncProfileWithServer() {
   if (typeof LuckyBingoAPI === "undefined") return;
   try {
     const user = await LuckyBingoAPI.getProfile();
-    if (user && !user.error && typeof user.balance === "number") {
-      balance = user.balance;
+    if (!user || user.error) return;
+
+    if (typeof user.balance === "number") {
+      balance = Number(user.balance);
+      // Cache only the last server value for paint-time fallback. It is never
+      // used as an authority for charging, refunds, or winnings.
       localStorage.setItem(BALANCE_KEY, String(balance));
-      const lobbyBalance = $("balance");
-      if (lobbyBalance) lobbyBalance.textContent = fmtBal(balance);
-      const pickBalance = $("pick-balance");
-      if (pickBalance) pickBalance.textContent = `${Number(balance).toFixed(2)} ETB`;
-      updateWalletBalances();
-      renderRooms();
     }
+
+    if (user.active_room) {
+      const recoveredRoomId = String(user.active_room.room_id);
+      if (activeRoomId === null || activeRoomId === recoveredRoomId) {
+        activeRoomId = recoveredRoomId;
+        selected = new Set((user.active_room.card_ids || []).map(Number));
+        stake = Number(activeRoomId) || stake;
+        serverRoomStates[recoveredRoomId] = {
+          ...(serverRoomStates[recoveredRoomId] || {}),
+          room_id: recoveredRoomId,
+          status: user.active_room.status,
+          round_id: user.active_room.current_round_id ?? user.active_room.round_id,
+          countdown_ends_at: Number(user.active_room.countdown_ends_at || 0),
+        };
+        const recoveredStatus = user.active_room.status;
+        if (recoveredStatus === "live") {
+          entryCharged = true;
+          if (!playing) beginLiveGame();
+        } else if (!playing && !views.pick.classList.contains("is-on")) {
+          showView("pick");
+          buildCardGrid();
+          renderCartelaPreview();
+          if (recoveredStatus === "countdown") {
+            const startsAt = Number(user.active_room.countdown_ends_at || 0) * 1000;
+            startPickCountdown(startsAt, `countdown:${user.active_room.current_round_id}:server`);
+          } else {
+            setupPickWaitingState();
+          }
+        }
+        LuckyBingoAPI.stopLobbyPoll();
+        LuckyBingoAPI.startRoomPoll(activeRoomId, handleServerRoomState, 800);
+      }
+    }
+
+    renderBalance();
+    updatePickInfo();
   } catch (e) {
     console.warn("Server profile sync error:", e);
   }
@@ -126,49 +163,33 @@ function startServerLobbySync() {
     if (!data || data.error || !Array.isArray(data.rooms)) return;
     for (const sRoom of data.rooms) {
       const rid = String(sRoom.room_id || sRoom.id);
-      const room = getLobbyRoom(rid);
-      if (room && sRoom.player_count !== undefined) {
-        room.players = sRoom.player_count;
-      }
-      if (sRoom.status === "countdown" && sRoom.countdown_ends_at) {
-        const startsAt = sRoom.countdown_ends_at * 1000;
-        roomLifecycle[rid] = {
-          ...(roomLifecycle[rid] || {}),
-          phase: "countdown",
-          startsAt: startsAt,
-          roundId: String(sRoom.round_id || "1"),
-          lifecycleKey: `countdown:${sRoom.round_id}:1`,
-        };
-      } else if (sRoom.status === "live") {
-        roomLifecycle[rid] = {
-          ...(roomLifecycle[rid] || {}),
-          phase: "live",
-          startedAt: Date.now(),
-          endsAt: Date.now() + ROOM_GAME_MS,
-          roundId: String(sRoom.round_id || "1"),
-          lifecycleKey: `live:${sRoom.round_id}:1`,
-        };
-      } else if (sRoom.status === "open") {
-        roomLifecycle[rid] = {
-          ...(roomLifecycle[rid] || {}),
-          phase: "open",
-          roundId: String(sRoom.round_id || "0"),
-          lifecycleKey: `open:${sRoom.round_id}:1`,
-        };
-      }
+      serverRoomStates[rid] = { ...sRoom };
+      const startsAt = Number(sRoom.countdown_ends_at || 0) * 1000;
+      roomLifecycle[rid] = {
+        ...(roomLifecycle[rid] || {}),
+        phase: sRoom.status === "countdown" ? "countdown" : sRoom.status === "live" ? "live" : "open",
+        startsAt,
+        roundId: String(sRoom.round_id ?? "0"),
+        lifecycleKey: `${sRoom.status}:${sRoom.round_id}:server`,
+      };
     }
-    if (views.lobby && views.lobby.classList.contains("is-on")) {
-      renderRooms();
-    }
+    if (views.lobby && views.lobby.classList.contains("is-on")) renderRooms();
   }, 1500);
 }
 
 function handleServerRoomState(sState) {
   if (!sState || sState.error) return;
   const rid = String(sState.room_id || activeRoomId);
-  const room = getLobbyRoom(rid);
-  if (room && sState.player_count !== undefined) {
-    room.players = sState.player_count;
+  serverRoomStates[rid] = { ...serverRoomStates[rid], ...sState };
+  if (activeRoomId && rid !== String(activeRoomId)) return;
+  if (Array.isArray(sState.players)) {
+    const mine = sState.players.find((player) => {
+      const current = LuckyBingoAPI?.getTelegramUser?.();
+      return current && Number(player.user_id) === Number(current.id);
+    });
+    if (mine && !playing && !gameWaiting) {
+      try { selected = new Set(JSON.parse(mine.card_ids || "[]").map(Number)); } catch (e) {}
+    }
   }
 
   // 1. Status is COUNTDOWN
@@ -181,11 +202,8 @@ function handleServerRoomState(sState) {
     updatePickInfo();
     renderPickRoomSummary();
 
-    if (views.pick && views.pick.classList.contains("is-on")) {
-      if (remaining <= 0 && selected.size > 0 && !playing && !gameWaiting) {
-        startGame();
-      }
-    }
+    // The browser clock is display-only. The server status poll is the only
+    // authority allowed to transition a shared room into the live round.
   }
 
   // 2. Status is LIVE
@@ -210,7 +228,6 @@ function handleServerRoomState(sState) {
       renderPickRoomSummary();
     }
   }
-
   // 4. Server reports round result (Winner announced!)
   if (sState.last_result && !claimed) {
     const res = sState.last_result;
@@ -261,16 +278,10 @@ function getStartingBonusSettings() {
 }
 
 function loadInitialBalance() {
+  // The server is authoritative. This local value is only a paint-time fallback
+  // while /api/me is loading and must never create or mutate wallet funds.
   const stored = Number(localStorage.getItem(BALANCE_KEY));
-  const current = Number.isFinite(stored) && stored >= 0 ? stored : START_BALANCE;
-  if (localStorage.getItem(STARTING_BONUS_CLAIMED_KEY) === "1") return current;
-
-  const bonus = getStartingBonusSettings();
-  startingBonusAwarded = bonus.enabled ? bonus.amount : 0;
-  localStorage.setItem(STARTING_BONUS_CLAIMED_KEY, "1");
-  const initialBalance = current + startingBonusAwarded;
-  localStorage.setItem(BALANCE_KEY, String(initialBalance));
-  return initialBalance;
+  return Number.isFinite(stored) && stored >= 0 ? stored : START_BALANCE;
 }
 
 function getPickCountdownSeconds() {
@@ -364,40 +375,23 @@ function getRealRoomParticipants() {
 }
 
 function registerRealPlayerInRoom(roomId) {
-  try {
-    const profile = getActivePlayerProfile();
-    const map = getRealRoomParticipants();
-    const currentList = Array.isArray(map[String(roomId)]) ? map[String(roomId)] : [];
-    if (!currentList.includes(profile.id)) {
-      map[String(roomId)] = [...currentList, profile.id];
-      localStorage.setItem(REAL_ROOM_PLAYERS_KEY, JSON.stringify(map));
-    }
-  } catch (e) {}
+  // Compatibility hook only. Membership is persisted by /api/join-room.
 }
 
 function unregisterRealPlayerFromRoom(roomId) {
-  try {
-    const profile = getActivePlayerProfile();
-    const map = getRealRoomParticipants();
-    const currentList = Array.isArray(map[String(roomId)]) ? map[String(roomId)] : [];
-    map[String(roomId)] = currentList.filter((id) => id !== profile.id);
-    localStorage.setItem(REAL_ROOM_PLAYERS_KEY, JSON.stringify(map));
-  } catch (e) {}
+  // Compatibility hook only. /api/leave-room owns membership and refunds.
 }
 
 function sanitizeRoomCatalog(rooms) {
   if (!Array.isArray(rooms)) return ROOMS;
-  const participants = getRealRoomParticipants();
-  return rooms.map((room) => {
-    const realList = Array.isArray(participants[String(room.id)]) ? participants[String(room.id)] : [];
-    const count = realList.length;
-    return {
-      ...room,
-      players: count,
-      prizePool: count * (Number(room.stake) || 0),
-      status: room.status === "paused" ? "paused" : (count > 0 ? (room.status === "waiting" ? "waiting" : room.status) : "waiting"),
-    };
-  });
+  // Local storage may contain room labels only. Server snapshots override all
+  // player counts, status, round, countdown, and prize calculations.
+  return rooms.map((room) => ({
+    ...room,
+    id: String(room.id),
+    players: 0,
+    prizePool: 0,
+  }));
 }
 
 function loadAdminRooms() {
@@ -428,14 +422,21 @@ function savePlayerRoomPlayers(roomId, players) {
 
 function getLobbyRooms() {
   const adminRooms = loadAdminRooms();
-  if (adminRooms === null) return ROOMS;
-  return adminRooms
-    .map((room) => ({
-      ...room,
-      id: String(room.id),
-      stake: Math.max(1, Math.round(Number(room.stake) || 0)),
-      players: Math.max(0, Math.floor(Number(room.players) || 0)),
-    }))
+  const rooms = adminRooms === null ? ROOMS : adminRooms;
+  return rooms
+    .map((room) => {
+      const id = String(room.id);
+      const server = serverRoomStates[id];
+      return {
+        ...room,
+        id,
+        stake: Math.max(1, Math.round(Number(room.stake) || Number(id) || 0)),
+        // Never use browser storage for authoritative room membership.
+        players: server ? Math.max(0, Number(server.player_count) || 0) : 0,
+        status: server?.status || "open",
+        roundId: server?.round_id ?? 0,
+      };
+    })
     .filter((room) => room.stake > 0);
 }
 
@@ -444,6 +445,11 @@ function getLobbyRoom(roomId) {
 }
 
 function roomSourceStatus(room) {
+  const server = serverRoomStates[String(room.id)];
+  if (server?.status === "countdown" || server?.status === "live" || server?.status === "open") {
+    return server.status;
+  }
+  if (!server) return "open";
   const adminRooms = loadAdminRooms();
   const adminRoom = adminRooms?.find((item) => String(item.id) === String(room.id));
   if (adminRoom) {
@@ -463,7 +469,8 @@ function roomLifecycleKey(roundKey, cycle) {
 }
 
 function createRoomOpen(room, now = Date.now(), previousLifecycle = null) {
-  const roundId = String(room?.roundId || ("R-" + Math.floor(1000 + Math.random() * 9000)));
+  // Legacy display fallback only. Production room lifecycle comes from the API.
+  const roundId = String(room?.roundId || "0");
   const roundKey = room ? roomRoundKey(room) : "waiting:0:0";
   const cycle = Number(previousLifecycle?.cycle || 0) + 1;
   const lifecycle = {
@@ -481,34 +488,38 @@ function createRoomOpen(room, now = Date.now(), previousLifecycle = null) {
 }
 
 function startRoomCountdown(room, now = Date.now(), seconds = null) {
+  // Deprecated compatibility hook. Only the server can start a countdown.
   const roomKey = String(room?.id || activeRoomId || "1");
-  const lobbyRoom = getLobbyRoom(roomKey) || room;
-  const current = roomLifecycle[roomKey];
-  const roundKey = lobbyRoom ? roomRoundKey(lobbyRoom) : "waiting:0:0";
-  const roundId = lobbyRoom ? String(lobbyRoom.roundId || "") : ("R-" + Math.floor(1000 + Math.random() * 9000));
-  const cycle = Number(current?.cycle || 1);
-  const countdownSecs = seconds || getPickCountdownSeconds() || 15;
-  const startsAt = now + countdownSecs * 1000;
-  const lifecycle = {
-    sourceStatus: "waiting",
-    roundId,
-    roundKey,
-    lifecycleKey: roomLifecycleKey(roundKey, cycle),
-    phase: "countdown",
-    startsAt: startsAt,
-    botPlayers: botPlayers || 2,
-    cycle,
-  };
-  roomLifecycle[roomKey] = lifecycle;
-  saveRoomLifecycle();
-  return lifecycle;
+  const server = serverRoomStates[roomKey];
+  return server?.status === "countdown" ? roomDisplayState(room) : null;
 }
 
 function roomDisplayState(room, now = Date.now()) {
-  const sourceStatus = roomSourceStatus(room);
-  const roundId = String(room.roundId || "");
-  const roundKey = roomRoundKey(room);
   const roomKey = String(room.id);
+  const server = serverRoomStates[roomKey];
+  if (server?.status === "countdown") {
+    const startsAt = Number(server.countdown_ends_at || 0) * 1000;
+    const safeLeft = Math.max(0, Math.ceil((startsAt - now) / 1000));
+    return {
+      type: "countdown",
+      label: formatCountdown(safeLeft),
+      ariaLabel: `Starts in ${formatCountdown(safeLeft)}`,
+      startsAt,
+      roundKey: `countdown:${server.round_id}:server`,
+    };
+  }
+  if (server?.status === "live") {
+    return {
+      type: "live",
+      label: "In Play",
+      ariaLabel: "Active game in progress",
+      roundKey: `live:${server.round_id}:server`,
+    };
+  }
+
+  const sourceStatus = roomSourceStatus(room);
+  const roundId = String(room.roundId || server?.round_id || "");
+  const roundKey = roomRoundKey(room);
   let lifecycle = roomLifecycle[roomKey];
 
   if (sourceStatus === "paused") {
@@ -574,12 +585,12 @@ function roomDisplayState(room, now = Date.now()) {
 }
 
 function scheduleRoomCountdown(roomId, now = Date.now()) {
-  const room = getLobbyRoom(roomId);
-  if (!room || roomSourceStatus(room) !== "waiting") return null;
-  return createRoomOpen(room, now, roomLifecycle[String(room.id)]);
+  // Deprecated compatibility hook. Countdown scheduling belongs to the server.
+  return null;
 }
 
 function saveBalance() {
+  // Retained for legacy display code only. Wallet mutations belong to the API.
   localStorage.setItem(BALANCE_KEY, String(balance));
 }
 
@@ -1068,8 +1079,9 @@ function ensureCard(id) {
 
 function prizePool() {
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
-  const count = room ? Math.max(selected.size, room.players) : selected.size;
-  return stake * count;
+  const server = activeRoomId ? serverRoomStates[String(activeRoomId)] : null;
+  const count = server ? Number(server.player_count) || 0 : 0;
+  return stake * count * (1 - COMMISSION_RATE);
 }
 
 function canAfford(roomStake) {
@@ -1084,8 +1096,9 @@ function calculateDerash(players, roomStake) {
 
 function renderPickRoomSummary() {
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
+  const server = activeRoomId ? serverRoomStates[String(activeRoomId)] : null;
   const roomStake = room?.stake || stake;
-  const playerCount = room ? Math.max(selected.size ? 1 : 0, room.players) : (selected.size ? 1 : 0);
+  const playerCount = server ? Number(server.player_count) || 0 : 0;
   const available = cardNumbers.length ? Math.max(0, cardNumbers.length - takenByOthers.size - selected.size) : 0;
   const title = $("pick-room-title");
   const entry = $("pick-entry");
@@ -1139,7 +1152,8 @@ function updateGameWaiting() {
 
 function updateGameSummary() {
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
-  const players = room ? Math.max(selected.size ? 1 : 0, room.players) : (selected.size ? 1 : 0);
+  const server = activeRoomId ? serverRoomStates[String(activeRoomId)] : null;
+  const players = server ? Number(server.player_count) || 0 : 0;
   const roomStake = room?.stake || stake;
   const derash = calculateDerash(players, roomStake);
   const roundId = room?.roundId || activeRoomId || "—";
@@ -1299,25 +1313,28 @@ function renderRooms() {
 
   wrap.replaceChildren(
     ...rooms.map((room) => {
+      const server = serverRoomStates[String(room.id)];
       const canPlay = canAfford(room.stake);
       const state = roomDisplayState(room);
       const roomOpen = canPlay && (state.type === "open" || state.type === "countdown");
       const roomClosed = state.type === "live" || state.type === "paused";
-      const derash = calculateDerash(room.players, room.stake);
-      const balanceMessage = roomBalanceMessage(room, canPlay, state);
+      const serverPlayers = server ? Number(server.player_count) || 0 : 0;
+      const derash = calculateDerash(serverPlayers, room.stake);
+      const displayRoom = { ...room, players: serverPlayers };
+      const balanceMessage = roomBalanceMessage(displayRoom, canPlay, state);
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "lb-room" + (canPlay ? "" : " is-locked") + (roomClosed ? " is-closed" : "");
       btn.disabled = roomClosed;
       btn.setAttribute("aria-disabled", String(roomClosed));
-      btn.setAttribute("aria-label", `${roomOpen ? "Play" : balanceMessage} ${room.stake} ETB room with ${room.players} players and ${derash} ETB derash. ${state.ariaLabel}.`);
+      btn.setAttribute("aria-label", `${roomOpen ? "Play" : balanceMessage} ${room.stake} ETB room with ${serverPlayers} players and ${derash} ETB derash. ${state.ariaLabel}.`);
       btn.innerHTML = `
         <span class="lb-room-stake">${room.stake} ETB</span>
         <span class="lb-room-active is-${state.type}" aria-live="polite">
           ${roomStatusMarkup(state)}
           <span class="lb-room-active-copy">${balanceMessage}</span>
         </span>
-        <span class="lb-room-players">${fmt(room.players)}</span>
+        <span class="lb-room-players">${fmt(serverPlayers)}</span>
         <span class="lb-room-prize">${fmt(derash)} ETB</span>
         <span class="lb-room-play${roomOpen ? " is-enabled" : " is-disabled"}">${roomOpen ? "Play" : roomClosed ? (state.type === "live" ? "In Play" : "Closed") : "Play"}</span>
       `;
@@ -1353,8 +1370,8 @@ function enterRoom(roomId) {
     return;
   }
 
-  if (activeRoomId && activeRoomId !== String(room.id)) {
-    unregisterRealPlayerFromRoom(activeRoomId);
+  if (activeRoomId && activeRoomId !== String(room.id) && typeof LuckyBingoAPI !== "undefined") {
+    LuckyBingoAPI.leaveRoom(activeRoomId).catch(() => {});
   }
 
   clearInterval(pickTimer);
@@ -1367,7 +1384,6 @@ function enterRoom(roomId) {
   }
   clearInterval(callTimer);
   activeRoomId = String(room.id);
-  registerRealPlayerInRoom(room.id);
   gameWaiting = false;
   entryCharged = false;
   stake = room.stake;
@@ -1600,31 +1616,12 @@ function setupPickWaitingState() {
 }
 
 function scheduleOpponentJoin() {
-  if (opponentJoinTimeout) clearTimeout(opponentJoinTimeout);
-  opponentJoinTimeout = setTimeout(() => {
+  // Opponents, card reservations, countdowns, and calls are created by the
+  // server. A browser must never simulate another player or start a local round.
+  if (opponentJoinTimeout) {
+    clearTimeout(opponentJoinTimeout);
     opponentJoinTimeout = null;
-    if (!views.pick.classList.contains("is-on")) return;
-    if (selected.size === 0) return;
-    const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
-    if (!room) return;
-
-    // Simulate 2 to 5 opponents joining the room and picking cards
-    const opponentCount = 2 + Math.floor(Math.random() * 4);
-    botPlayers = opponentCount;
-    for (let i = 0; i < opponentCount * 2; i++) {
-      const avail = cardNumbers.filter((id) => !selected.has(id) && !takenByOthers.has(id));
-      if (!avail.length) break;
-      const pickId = avail[Math.floor(Math.random() * avail.length)];
-      takenByOthers.add(pickId);
-    }
-    paintPicks();
-    updatePickInfo();
-
-    // Now at least 2 players have cards! Start room countdown for everyone equally!
-    const roomCountdown = startRoomCountdown(room, Date.now(), 15);
-    startPickCountdown(roomCountdown.startsAt, roomCountdown.lifecycleKey);
-    toast("OPPONENTS JOINED — COUNTDOWN STARTED!", "win");
-  }, 1600);
+  }
 }
 
 function onCardSelectionChanged() {
@@ -1645,22 +1642,32 @@ function onCardSelectionChanged() {
     }
   } else {
     if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
-      LuckyBingoAPI.joinRoom(activeRoomId, Array.from(selected)).then((res) => {
+      const requestedCards = new Set(selected);
+      LuckyBingoAPI.joinRoom(activeRoomId, Array.from(requestedCards)).then((res) => {
         if (!res || res.error) {
           console.warn("[API] joinRoom notice:", res?.error);
-        } else {
+          selected = new Set();
           syncProfileWithServer();
+          toast(res?.requires_contact ? "SHARE YOUR TELEGRAM CONTACT TO PLAY" : (res?.error || "Unable to join this room"), "lose");
+          return;
         }
+        if (typeof res.balance === "number") {
+          balance = Number(res.balance);
+          renderBalance();
+        }
+        syncProfileWithServer();
       }).catch((e) => {
         console.warn("[API] joinRoom network notice:", e);
+        selected = new Set();
+        syncProfileWithServer();
+        toast("Unable to reach the game server", "lose");
       });
     }
     if (!pickTimer && !opponentJoinTimeout) {
-      scheduleOpponentJoin();
       const time = $("pick-time");
       if (time) time.textContent = "Waiting";
       const helper = $("pick-helper");
-      if (helper) helper.textContent = "Cartela selected! Waiting for other players to join…";
+      if (helper) helper.textContent = "Cartela selected! Waiting for the shared room countdown…";
     }
   }
 }
@@ -1707,26 +1714,12 @@ function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
     updatePickCountdownDisplay();
     updatePickInfo();
 
-    // Occasional simulated cartela pick while counting down
-    if (pickLeft > 2 && Math.random() < 0.35) {
-      simulateOthersPicking();
-    }
-
-    if (pickLeft > 0) return;
-
-    // Countdown reached 0:00!
-    clearInterval(pickTimer);
-    pickTimer = null;
-    pickEndsAt = 0;
-    if (selected.size > 0) {
-      if (gameWaiting) beginLiveGame();
-      else startGame();
-    } else {
-      toast("NO CARD SELECTED", "lose");
-      if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
-      activeRoomId = null;
-      showView("lobby");
-      renderRooms();
+    // Do not start a round from the browser clock. The server status poll
+    // transitions the shared room to live on every device.
+    if (pickLeft <= 0) {
+      clearInterval(pickTimer);
+      pickTimer = null;
+      pickEndsAt = 0;
     }
   };
 
@@ -1735,17 +1728,12 @@ function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
 }
 
 function simulateOthersPicking() {
-  if (!views.pick.classList.contains("is-on")) return;
-  const avail = cardNumbers.filter((id) => !selected.has(id) && !takenByOthers.has(id));
-  if (avail.length > 0) {
-    const pickId = avail[Math.floor(Math.random() * avail.length)];
-    takenByOthers.add(pickId);
-    paintPicks();
-    renderPickRoomSummary();
-  }
+  // Compatibility no-op. Other players and reserved cards are server state.
 }
 
 function startGame() {
+  // Joining (and charging) is performed atomically by the server when cards are selected.
+  // Do not create a second local charge or local call sequence.
   if (!cardsReady || !selected.size) {
     toast("SELECT A CARTELA FIRST", "lose");
     return;
@@ -1760,17 +1748,18 @@ function startGame() {
     const sourceStatus = roomSourceStatus(room);
     if ((sourceStatus === "live" || sourceStatus === "paused") && pickLeft > 0) {
       toast(sourceStatus === "live" ? "ROUND IN PROGRESS" : "ROOM CLOSED", "lose");
-      if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
+      if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
+        LuckyBingoAPI.leaveRoom(activeRoomId).catch(() => {});
+      }
       activeRoomId = null;
       showView("lobby");
       renderRooms();
       return;
     }
     const state = roomDisplayState(room);
-    if (state.type === "live" && sourceStatus === "waiting") {
-      pickLeft = 0;
-      updatePickCountdownDisplay();
-      updatePickInfo();
+    if (state.type === "live") {
+      toast("ROUND IN PROGRESS", "lose");
+      return;
     }
   }
 
@@ -1781,17 +1770,7 @@ function startGame() {
     return;
   }
 
-  balance -= cost;
   entryCharged = true;
-  saveBalance();
-  renderBalance();
-  recordPlayerTransaction({
-    type: "stake",
-    method: `${stake} ETB Room Stake`,
-    amount: cost,
-    status: "completed",
-    details: `${selected.size} cartela${selected.size > 1 ? "s" : ""} · ${stake} birr room`,
-  });
   hideWinnerOverlay();
   hideRoundResult();
   called = [];
@@ -1812,12 +1791,11 @@ function startGame() {
   updateRecentCalls();
   updateGameWaiting();
 
-  if (pickLeft <= 0) {
-    beginLiveGame();
-    return;
-  }
-
-  $("game-status").textContent = `Game starts in ${formatCountdown(pickLeft)}`;
+  // Do not enter the live view from a local clock. The next room-state poll
+  // will call beginLiveGame only after the server reports status === "live".
+  $("game-status").textContent = pickLeft > 0
+    ? `Game starts in ${formatCountdown(pickLeft)}`
+    : "Waiting for the shared room to start…";
   updateGameSummary();
   toast("YOU'RE IN — WAIT FOR THE COUNTDOWN", "win");
 }
@@ -1826,15 +1804,8 @@ function beginLiveGame() {
   if (!selected.size || !entryCharged) return;
   clearInterval(pickTimer);
   pickTimer = null;
-  if (activeRoomId) {
-    roomLifecycle[activeRoomId] = {
-      ...(roomLifecycle[activeRoomId] || {}),
-      phase: "live",
-      startedAt: Date.now(),
-      endsAt: Date.now() + ROOM_GAME_MS,
-    };
-    saveRoomLifecycle();
-  }
+  // The server owns the room lifecycle. This function is called only after a
+  // room-state response reports a shared live round.
   setGameWaitingState(false);
   playing = true;
   claimed = false;
@@ -1845,7 +1816,7 @@ function beginLiveGame() {
   hideRoundResult();
   called = [];
   manualMarked = new Set();
-  callPool = shuffle(Array.from({ length: 75 }, (_, i) => i + 1));
+  callPool = [];
   showView("game");
   updateGameSummary();
   $("bingo-btn").disabled = true;
@@ -1859,7 +1830,8 @@ function beginLiveGame() {
   buildBoard();
   renderMineCards();
   clearInterval(callTimer);
-  callTimer = setInterval(nextCall, CALL_MS);
+  // Calls come only from /api/room-state. A client never generates numbers.
+  callTimer = null;
 }
 
 function hideRoundResult() {
@@ -1914,7 +1886,6 @@ function returnToCardSelection() {
   hideRoundResult();
 
   if (!room) {
-    if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
     activeRoomId = null;
     setGameWaitingState(false);
     showView("lobby");
@@ -1922,10 +1893,9 @@ function returnToCardSelection() {
     return;
   }
 
-  // Reset room to OPEN for the next round!
-  createRoomOpen(room, Date.now(), roomLifecycle[String(room.id)]);
+  // The server advances the room round. Re-join only after the new round is
+  // visible, never by mutating localStorage or creating a local lifecycle.
   activeRoomId = String(room.id);
-  registerRealPlayerInRoom(room.id);
   stake = room.stake;
   botPlayers = 0;
   setGameWaitingState(false);
@@ -1940,9 +1910,8 @@ function returnToCardSelection() {
 }
 
 function finishActiveRoomRound() {
-  const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
-  if (!room || roomSourceStatus(room) !== "waiting") return;
-  createRoomOpen(room, Date.now(), roomLifecycle[String(room.id)]);
+  // Round lifecycle is owned by the server. Keep this function for callers that
+  // finish the local view, but do not mutate the shared room from a browser.
 }
 
 function renderWinnerConfetti() {
@@ -2383,28 +2352,9 @@ function handleSingleCall(n) {
 }
 
 function nextCall() {
-  if (!playing || !callPool.length) {
-    clearInterval(callTimer);
-    if (!claimed) {
-      playing = false;
-      finishActiveRoomRound();
-      $("game-status").textContent = "No Bingo — round over";
-      showRoundResult("lose", "No player");
-      markLoserCards();
-      toast("NO WINNER", "lose");
-      setTimeout(() => {
-        returnToCardSelection();
-      }, 4000);
-    }
-    return;
-  }
-  const n = callPool.pop();
-  handleSingleCall(n);
-
-  if (!claimed && called.length >= 26 && Math.random() < 0.055) {
-    botWins();
-    return;
-  }
+  // Deprecated: the server timer writes game_calls; clients only consume them.
+  clearInterval(callTimer);
+  callTimer = null;
 }
 
 function cellHit(card, index, hit) {
@@ -2455,73 +2405,36 @@ function claimBingo() {
     return;
   }
   claimed = true;
-  playing = false;
   clearInterval(callTimer);
-  finishActiveRoomRound();
-
-  const mult = kind === "FULL HOUSE" ? 1 : 0.22;
-  const win = Math.max(stake, Math.round(prizePool() * mult));
-  balance += win;
-  saveBalance();
-  renderBalance();
-  recordPlayerTransaction({
-    type: "win",
-    method: "Derash Prize Win",
-    amount: win,
-    status: "completed",
-    details: `${kind} · Card #${winCard}`,
-  });
-  rememberWinningCard(stake, winCard, PLAYER_NAME, win);
-  roundOutcome = "win";
-  roundWinnerName = PLAYER_NAME;
-  roundWinKind = kind;
-  roundWinCardId = winCard;
-  $("game-status").textContent = kind + " on card #" + winCard + " · +" + fmt(win) + " ETB";
-  showRoundResult("win", PLAYER_NAME, kind, winCard);
-  renderMineCards();
-  toast("WON! +" + fmt(win), "win");
+  callTimer = null;
+  // The server validates the claim and credits the wallet exactly once.
+  playing = false;
+  $("game-status").textContent = `${kind} on card #${winCard} · verifying…`;
   $("bingo-btn").disabled = true;
-  showWinnerOverlay("win", PLAYER_NAME, win, winCard, kind);
 
   if (activeRoomId && winCard && typeof LuckyBingoAPI !== "undefined") {
     LuckyBingoAPI.claimBingo(activeRoomId, winCard).then((res) => {
+      if (!res || res.error) {
+        claimed = false;
+        playing = true;
+        toast(res?.error || "CLAIM FAILED", "lose");
+        return;
+      }
       syncProfileWithServer();
     });
   }
 }
 
 function botWins() {
-  if (claimed || !playing) return;
-  claimed = true;
-  playing = false;
-  clearInterval(callTimer);
-  finishActiveRoomRound();
-  const BOT_WINNER_NAMES = [
-    "Abebe T.", "Sara M.", "Dawit K.", "Hanan A.", "Yonas B.",
-    "Selam W.", "Tigist G.", "Bereket F.", "Kidus N.", "Bethlehem D."
-  ];
-  const winnerName = BOT_WINNER_NAMES[Math.floor(Math.random() * BOT_WINNER_NAMES.length)] || "Dawit K.";
-  const botCardId = [...takenByOthers][0] || Math.floor(Math.random() * 900) + 1;
-  const botPrize = calculateDerash(Math.max(2, selected.size + botPlayers), stake);
-  roundOutcome = "lose";
-  roundWinnerName = winnerName;
-  roundWinCardId = botCardId;
-  const bingoBtn = $("bingo-btn");
-  if (bingoBtn) bingoBtn.disabled = true;
-  $("game-status").textContent = `${winnerName} claimed Bingo!`;
-  showRoundResult("lose", winnerName, "LINE", botCardId);
-  renderMineCards();
-  toast(`${winnerName} CLAIMED BINGO!`, "lose");
-  showWinnerOverlay("lose", winnerName, botPrize, botCardId, "LINE");
+  // Deprecated compatibility hook. Bot winners are selected and persisted by
+  // GameEngine; a browser must never invent a winner or end a round locally.
 }
 
 function leaveGame() {
-  const wasWaiting = gameWaiting;
+  const roomId = activeRoomId;
   hideWinnerOverlay();
-  if (wasWaiting && entryCharged) {
-    balance += stake * selected.size;
-    saveBalance();
-    renderBalance();
+  if (roomId && typeof LuckyBingoAPI !== "undefined") {
+    LuckyBingoAPI.leaveRoom(roomId).then(() => syncProfileWithServer()).catch(() => {});
   }
   clearInterval(callTimer);
   clearInterval(pickTimer);
@@ -2532,7 +2445,6 @@ function leaveGame() {
   gameWaiting = false;
   entryCharged = false;
   manualMarked = new Set();
-  if (activeRoomId) unregisterRealPlayerFromRoom(activeRoomId);
   activeRoomId = null;
   claimed = false;
   roundOutcome = null;
@@ -2776,11 +2688,6 @@ function handleWithdrawSubmit(event) {
     return;
   }
 
-  // Deduct the requested withdrawal amount immediately so player cannot double-spend
-  balance -= amount;
-  saveBalance();
-  renderBalance();
-
   const transaction = saveWalletRequest({
     type: "withdraw",
     method,
@@ -2804,15 +2711,9 @@ function handleWithdrawSubmit(event) {
 }
 
 function syncPlayerWalletFromStorage() {
-  const stored = Number(localStorage.getItem(BALANCE_KEY));
-  if (Number.isFinite(stored) && stored !== balance) {
-    const diff = stored - balance;
-    balance = stored;
-    renderBalance();
-    if (diff > 0 && !playing) {
-      toast(`WALLET UPDATED: +${fmt(diff)} ETB`, "win");
-    }
-  }
+  // localStorage is not an account ledger. Refresh the signed server profile
+  // whenever the tab regains focus instead of copying another tab's cache.
+  syncProfileWithServer();
 }
 
 window.addEventListener("storage", (event) => {
@@ -2926,34 +2827,9 @@ document.addEventListener("visibilitychange", () => {
 bind();
 if (startingBonusAwarded > 0) toast(`STARTING BONUS +${fmt(startingBonusAwarded)} ETB`, "win");
 if (window.location.hash === "#game" || window.location.search.includes("view=game")) {
-  activeRoomId = "10";
-  stake = 10;
-  clearInterval(pickTimer);
-  clearInterval(callTimer);
-  gameWaiting = false;
-  selected.clear();
-  const urlParams = new URLSearchParams(window.location.search);
-  const cardParam = urlParams.get("card");
-  if (cardParam) {
-    cardParam.split(",").map(Number).filter(Boolean).forEach((id) => selected.add(id));
-  } else {
-    selected.add(10);
-  }
-  entryCharged = true;
-  beginLiveGame();
-  called = [51, 2];
-  callPool = callPool.filter((n) => n !== 2 && n !== 51);
-  paintBoard();
-  const ballEl = $("call-ball");
-  if (ballEl) {
-    ballEl.textContent = "2";
-    ballEl.dataset.letter = "B";
-  }
-  $("call-letter").textContent = "B";
-  $("call-count").textContent = "2";
-  updateRecentCalls();
-  renderMineCards();
-  if ($("toast")) $("toast").hidden = true;
+  // Deep links no longer create a private game. The active room and called
+  // numbers must be recovered from the authenticated server session.
+  syncProfileWithServer();
 } else if (window.location.hash === "#pick" || window.location.search.includes("view=pick")) {
   showView("pick");
   stake = 10;
@@ -2976,15 +2852,12 @@ checkAdminAccess();
 window.addEventListener("DOMContentLoaded", checkAdminAccess);
 window.addEventListener("load", checkAdminAccess);
 window.addEventListener("beforeunload", () => {
-  if (activeRoomId) {
-    unregisterRealPlayerFromRoom(activeRoomId);
-  }
+  // Do not mutate server membership during unload. A refresh or second device
+  // must not receive a localStorage-driven refund or room deletion.
 });
 window.addEventListener("storage", (event) => {
-  if (event.key === REAL_ROOM_PLAYERS_KEY || event.key === ROOM_CATALOG_KEY) {
-    if (views.lobby && views.lobby.classList.contains("is-on")) {
-      renderRooms();
-    }
+  if (event.key === ROOM_CATALOG_KEY) {
+    if (views.lobby && views.lobby.classList.contains("is-on")) renderRooms();
   }
 });
 

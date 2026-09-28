@@ -32,24 +32,29 @@ const LuckyBingoAPI = (() => {
 
   function getTelegramUser() {
     try {
-      if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
-        const u = window.Telegram.WebApp.initDataUnsafe.user;
-        localStorage.setItem("lb_tg_user", JSON.stringify(u));
-        return u;
+      const webAppUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+      if (webAppUser?.id) {
+        localStorage.setItem("lb_tg_user", JSON.stringify(webAppUser));
+        return webAppUser;
       }
-      const params = new URLSearchParams(window.location.search);
-      const uid = params.get("u") || params.get("user_id") || params.get("tg_user_id");
-      if (uid && !isNaN(Number(uid))) {
-        const u = { id: Number(uid), username: params.get("username") || "" };
-        localStorage.setItem("lb_tg_user", JSON.stringify(u));
-        return u;
-      }
-      const cached = localStorage.getItem("lb_tg_user");
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          if (parsed && parsed.id) return parsed;
-        } catch (e) {}
+
+      // URL and cached identities are development-only conveniences. They are
+      // not sent as proof of identity when Telegram initData is unavailable.
+      if (window.LUCKY_BINGO_DEV_AUTH === true) {
+        const params = new URLSearchParams(window.location.search);
+        const uid = params.get("u") || params.get("user_id") || params.get("tg_user_id");
+        if (uid && /^\d+$/.test(uid)) {
+          const u = { id: Number(uid), username: params.get("username") || "" };
+          localStorage.setItem("lb_tg_user", JSON.stringify(u));
+          return u;
+        }
+        const cached = localStorage.getItem("lb_tg_user");
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (parsed && parsed.id) return parsed;
+          } catch (e) {}
+        }
       }
       return null;
     } catch (e) {
@@ -59,14 +64,17 @@ const LuckyBingoAPI = (() => {
 
   async function apiRequest(path, options = {}) {
     const url = getBaseUrl() + path;
+    const initData = getInitData();
     const headers = {
       "Content-Type": "application/json",
-      "X-Telegram-Init-Data": getInitData(),
+      "X-Telegram-Init-Data": initData,
       ...options.headers,
     };
 
+    // In production, the server must authenticate the signed initData. The
+    // numeric header is sent only for explicitly enabled local development.
     const user = getTelegramUser();
-    if (user && user.id) {
+    if (!initData && window.LUCKY_BINGO_DEV_AUTH === true && user?.id) {
       headers["X-Telegram-User-Id"] = String(user.id);
     }
 

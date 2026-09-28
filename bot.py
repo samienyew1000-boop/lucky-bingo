@@ -413,9 +413,10 @@ class GameEngine:
             # Get calls
             cursor.execute('SELECT number, call_index FROM game_calls WHERE room_id = ? AND round_id = ? ORDER BY call_index', (room_id, round_id))
             calls = [row['number'] for row in cursor.fetchall()]
-            
+
             bot_players = self._bot_players.get(room_id, [])
-            
+            round_result = self.get_round_result(room_id)
+
             return {
                 'room_id': room_id,
                 'stake': int(room_id),
@@ -425,11 +426,12 @@ class GameEngine:
                 'players': players,
                 'bot_players': bot_players,
                 'calls': calls,
+                'last_result': round_result,
                 'player_count': len(players) + len(bot_players),
             }
     
     def join_room(self, room_id, user_id, card_ids):
-        """Player joins a room with selected cards. Returns success/error dict."""
+        """Join or update a player's cards using the server-owned wallet and round."""
         with self.lock:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
@@ -439,41 +441,80 @@ class GameEngine:
                     return {'error': 'Room not found'}
                 if room['status'] == 'live':
                     return {'error': 'Game in progress, please wait'}
-                
+
+                card_ids = list(dict.fromkeys(card_ids or []))
+                if not card_ids or len(card_ids) > 2 or any(
+                    not isinstance(card_id, int) or card_id < 1 or card_id > 1000
+                    for card_id in card_ids
+                ):
+                    return {'error': 'Choose one or two valid cards'}
+
                 stake = int(room_id)
                 round_id = room['round_id']
-                
-                # Check if already joined this round
-                cursor.execute('SELECT 1 FROM room_players WHERE room_id = ? AND user_id = ? AND round_id = ?', (room_id, user_id, round_id))
-                if cursor.fetchone():
-                    # Update card selection
-                    cursor.execute('UPDATE room_players SET card_ids = ? WHERE room_id = ? AND user_id = ? AND round_id = ?', (json.dumps(card_ids), room_id, user_id, round_id))
-                    conn.commit()
-                    self._check_start_countdown(room_id, conn)
-                    return {'ok': True, 'updated': True}
-                
-                # Check balance
-                cursor.execute('SELECT balance FROM users WHERE id = ?', (user_id,))
-                user = cursor.fetchone()
-                if not user or user['balance'] < stake * len(card_ids):
-                    return {'error': 'Insufficient balance'}
-                
-                # Deduct balance
-                cost = stake * len(card_ids)
-                cursor.execute('UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?', (cost, user_id, cost))
-                if cursor.rowcount == 0:
-                    return {'error': 'Insufficient balance'}
-                
-                # Insert player
+                cursor.execute(
+                    'SELECT card_ids FROM room_players WHERE room_id = ? AND round_id = ?',
+                    (room_id, round_id),
+                )
+                taken_cards = set()
+                for row in cursor.fetchall():
+                    try:
+                        taken_cards.update(json.loads(row['card_ids'] or '[]'))
+                    except (TypeError, ValueError):
+                        pass
+
+                cursor.execute(
+                    'SELECT card_ids FROM room_players WHERE room_id = ? AND user_id = ? AND round_id = ?',
+                    (room_id, user_id, round_id),
+                )
+                existing = cursor.fetchone()
+                old_cards = []
+                if existing:
+                    try:
+                        old_cards = json.loads(existing['card_ids'] or '[]')
+                    except (TypeError, ValueError):
+                        old_cards = []
+                if any(card_id in taken_cards and card_id not in old_cards for card_id in card_ids):
+                    return {'error': 'One of those cards is already taken'}
+
+                old_cost = stake * len(old_cards)
+                new_cost = stake * len(card_ids)
+                delta = new_cost - old_cost
+                if delta > 0:
+                    cursor.execute(
+                        'UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?',
+                        (delta, user_id, delta),
+                    )
+                    if cursor.rowcount == 0:
+                        return {'error': 'Insufficient balance'}
+                elif delta < 0:
+                    cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (-delta, user_id))
+
                 now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-                cursor.execute('INSERT INTO room_players (room_id, user_id, round_id, card_ids, joined_at) VALUES (?, ?, ?, ?, ?)', (room_id, user_id, round_id, json.dumps(card_ids), now))
+                if existing:
+                    cursor.execute(
+                        'UPDATE room_players SET card_ids = ?, joined_at = ? WHERE room_id = ? AND user_id = ? AND round_id = ?',
+                        (json.dumps(card_ids), now, room_id, user_id, round_id),
+                    )
+                else:
+                    cursor.execute(
+                        'INSERT INTO room_players (room_id, user_id, round_id, card_ids, joined_at) VALUES (?, ?, ?, ?, ?)',
+                        (room_id, user_id, round_id, json.dumps(card_ids), now),
+                    )
+                cursor.execute('SELECT balance FROM users WHERE id = ?', (user_id,))
+                new_balance = float(cursor.fetchone()['balance'] or 0.0)
                 conn.commit()
-            
+
             self._check_start_countdown(room_id)
-            return {'ok': True, 'cost': cost}
+            return {
+                'ok': True,
+                'updated': bool(existing),
+                'cost': new_cost,
+                'balance': new_balance,
+                'round_id': round_id,
+            }
     
     def _check_start_countdown(self, room_id, conn=None):
-        """If 2+ players (real + bot), start countdown."""
+        """Start one shared countdown after a real player joins."""
         def _do_check(connection):
             cursor = connection.cursor()
             cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (room_id,))
@@ -513,7 +554,7 @@ class GameEngine:
         for name in random.sample(bot_names, min(count, len(bot_names))):
             bots.append({
                 'name': name,
-                'card_ids': [random.randint(1, 584)],
+                'card_ids': [random.randint(1, 1000)],
                 'is_bot': True
             })
         self._bot_players[room_id] = bots
@@ -529,15 +570,19 @@ class GameEngine:
         self._call_timers[room_id] = timer
     
     def _start_live_game(self, room_id):
-        """Transition room to live and start calling numbers."""
+        """Transition the shared room to live and start its single call sequence."""
         with self.lock:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
+                cursor.execute('SELECT status FROM game_rooms WHERE id = ?', (room_id,))
+                room = cursor.fetchone()
+                if not room or room['status'] != 'countdown':
+                    return
                 now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
                 cursor.execute('UPDATE game_rooms SET status = ?, updated_at = ? WHERE id = ?', ('live', now, room_id))
                 conn.commit()
-        
-        # Start calling numbers
+
+        # Only this server timer creates calls; every client reads the same rows.
         self._schedule_next_call(room_id)
     
     def _schedule_next_call(self, room_id):
@@ -592,7 +637,21 @@ class GameEngine:
         self._schedule_next_call(room_id)
     
     def claim_bingo(self, room_id, user_id, card_id):
-        """Player claims bingo. Server validates the win."""
+        """Validate a player's card against the server's called numbers."""
+        try:
+            card_id = int(card_id)
+        except (TypeError, ValueError):
+            return {'error': 'Invalid card'}
+
+        card_catalog_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'card number.json')
+        try:
+            with open(card_catalog_path, 'r', encoding='utf-8') as card_file:
+                card_values = json.load(card_file).get(str(card_id))
+            if not isinstance(card_values, list) or len(card_values) != 25:
+                return {'error': 'Card not found'}
+        except (OSError, ValueError, TypeError):
+            return {'error': 'Card data unavailable'}
+
         with self.lock:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
@@ -600,20 +659,45 @@ class GameEngine:
                 room = cursor.fetchone()
                 if not room:
                     return {'error': 'Game not in progress'}
-                
+
                 round_id = room['round_id']
-                
-                # Get called numbers
-                cursor.execute('SELECT number FROM game_calls WHERE room_id = ? AND round_id = ?', (room_id, round_id))
-                called = {row['number'] for row in cursor.fetchall()}
-                
-                # Validate the card against called numbers (simplified - check the card data)
-                # For now, trust the client claim and award the prize
-                cursor.execute('SELECT rp.*, u.first_name, u.username FROM room_players rp JOIN users u ON rp.user_id = u.id WHERE rp.room_id = ? AND rp.user_id = ? AND rp.round_id = ?', (room_id, user_id, round_id))
+                cursor.execute(
+                    'SELECT number FROM game_calls WHERE room_id = ? AND round_id = ?',
+                    (room_id, round_id),
+                )
+                called = {int(row['number']) for row in cursor.fetchall()}
+                cursor.execute(
+                    'SELECT rp.*, u.first_name, u.username FROM room_players rp '
+                    'JOIN users u ON rp.user_id = u.id '
+                    'WHERE rp.room_id = ? AND rp.user_id = ? AND rp.round_id = ?',
+                    (room_id, user_id, round_id),
+                )
                 player = cursor.fetchone()
                 if not player:
                     return {'error': 'You are not in this game'}
-                
+
+                try:
+                    owned_cards = {int(value) for value in json.loads(player['card_ids'] or '[]')}
+                except (TypeError, ValueError):
+                    owned_cards = set()
+                if card_id not in owned_cards:
+                    return {'error': 'Card is not registered to you'}
+
+                # The center square is free. All other cells must have been
+                # called by the one server-owned number sequence.
+                winning_lines = [
+                    [0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13, 14],
+                    [15, 16, 17, 18, 19], [20, 21, 22, 23, 24],
+                    [0, 5, 10, 15, 20], [1, 6, 11, 16, 21], [2, 7, 12, 17, 22],
+                    [3, 8, 13, 18, 23], [4, 9, 14, 19, 24],
+                    [0, 6, 12, 18, 24], [4, 8, 12, 16, 20],
+                ]
+                def cell_is_hit(index):
+                    return index == 12 or int(card_values[index]) in called
+
+                if not any(all(cell_is_hit(index) for index in line) for line in winning_lines):
+                    return {'error': 'Bingo is not complete'}
+
                 winner_name = player['first_name'] or player['username'] or 'Player'
                 self._end_round(room_id, conn, winner_id=user_id, winner_name=winner_name)
                 return {'ok': True, 'winner': winner_name}
@@ -1582,19 +1666,19 @@ def start_background_web_server() -> None:
             self.end_headers()
             
         def get_user_from_headers(self):
-            init_data = self.headers.get('X-Telegram-Init-Data')
+            # Telegram WebApp initData is signed and is the production identity
+            # source. Never accept a client-provided numeric ID in production.
+            init_data = self.headers.get('X-Telegram-Init-Data', '')
             if init_data:
-                u = validate_telegram_webapp(init_data)
-                if u:
-                    return u
-            
+                return validate_telegram_webapp(init_data)
+
+            if os.getenv('ALLOW_DEV_USER_HEADER', '').lower() not in ('1', 'true', 'yes'):
+                return None
+
             user_id_str = self.headers.get('X-Telegram-User-Id')
             if user_id_str and user_id_str.isdigit():
                 uid = int(user_id_str)
-                u = get_user_by_id(uid)
-                if not u:
-                    u = get_or_create_user(uid)
-                return u
+                return get_user_by_id(uid) or get_or_create_user(uid)
             return None
             
         def send_json(self, data, status=200):
@@ -1628,7 +1712,27 @@ def start_background_web_server() -> None:
                         first_name=user.get('first_name', ''),
                         last_name=user.get('last_name', '')
                     )
-                    return self.send_json(db_user)
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            '''SELECT rp.room_id, rp.round_id, rp.card_ids, gr.status,
+                                      gr.countdown_ends_at, gr.round_id AS current_round_id
+                               FROM room_players rp
+                               JOIN game_rooms gr ON gr.id = rp.room_id
+                               WHERE rp.user_id = ? AND rp.round_id = gr.round_id
+                                 AND gr.status IN ('open', 'countdown', 'live')
+                               ORDER BY rp.joined_at DESC LIMIT 1''',
+                            (user.get('id', 0),),
+                        )
+                        active = cursor.fetchone()
+                    response = dict(db_user)
+                    response['active_room'] = dict(active) if active else None
+                    if response['active_room']:
+                        try:
+                            response['active_room']['card_ids'] = json.loads(response['active_room'].get('card_ids') or '[]')
+                        except (TypeError, ValueError):
+                            response['active_room']['card_ids'] = []
+                    return self.send_json(response)
                     
                 elif path == '/api/rooms':
                     rooms_info = []
@@ -1683,9 +1787,23 @@ def start_background_web_server() -> None:
                     card_ids = body.get('card_ids', [])
                     if not room_id or not isinstance(card_ids, list):
                         return self.send_json({'error': 'Invalid request'}, status=400)
-                        
+
+                    db_user = get_or_create_user(
+                        user_id=user.get('id', 0),
+                        username=user.get('username', ''),
+                        first_name=user.get('first_name', ''),
+                        last_name=user.get('last_name', ''),
+                    )
+                    if not db_user.get('is_verified') and not is_admin_check(
+                        user.get('id', 0), user.get('username', ''), db_user.get('phone_number', '')
+                    ):
+                        return self.send_json({
+                            'error': 'Share your Telegram contact before playing',
+                            'requires_contact': True,
+                        }, status=403)
+
                     result = game_engine.join_room(str(room_id), user.get('id', 0), card_ids)
-                    return self.send_json(result)
+                    return self.send_json(result, status=200 if result.get('ok') else 400)
                     
                 elif path == '/api/leave-room':
                     room_id = body.get('room_id')
