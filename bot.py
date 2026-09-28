@@ -531,7 +531,7 @@ class GameEngine:
                 if bot_count == 0:
                     self._add_bot_players(room_id)
                 
-                countdown_secs = 15  # Fixed 15 second countdown
+                countdown_secs = 60  # Fixed 60-second (1-minute) countdown
                 ends_at = time.time() + countdown_secs
                 now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
                 cursor.execute('UPDATE game_rooms SET status = ?, countdown_ends_at = ?, updated_at = ? WHERE id = ?', ('countdown', ends_at, now, room_id))

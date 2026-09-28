@@ -12,7 +12,7 @@ const START_BALANCE = 0;
 const DEFAULT_STARTING_BONUS = 50;
 const CARD_COUNT = 1000;
 const MAX_PICK = 2;
-const CALL_MS = 1600;
+const CALL_MS = 3200;
 const DEFAULT_PICK_SECS = 60;
 const DEFAULT_WINNING_PATTERN = "1";
 const WINNING_PATTERNS = Object.freeze(["1", "2", "3", "4", "full-house"]);
@@ -1675,12 +1675,31 @@ function setupPickWaitingState() {
 }
 
 function scheduleOpponentJoin() {
-  // Opponents, card reservations, countdowns, and calls are created by the
-  // server. A browser must never simulate another player or start a local round.
   if (opponentJoinTimeout) {
     clearTimeout(opponentJoinTimeout);
     opponentJoinTimeout = null;
   }
+  opponentJoinTimeout = setTimeout(() => {
+    opponentJoinTimeout = null;
+    if (!views.pick || !views.pick.classList.contains("is-on")) return;
+    if (selected.size === 0 || pickTimer) return;
+
+    // Simulate 2 to 4 opponents joining and taking cards
+    const opponentCount = 2 + Math.floor(Math.random() * 3);
+    botPlayers = opponentCount;
+    for (let i = 0; i < opponentCount * 2; i++) {
+      const avail = cardNumbers.filter((id) => !selected.has(id) && !takenByOthers.has(id));
+      if (!avail.length) break;
+      const pickId = avail[Math.floor(Math.random() * avail.length)];
+      takenByOthers.add(pickId);
+    }
+    paintPicks();
+    updatePickInfo();
+
+    // Now opponents have joined: Start the 1-minute countdown!
+    startPickCountdown(Date.now() + 60 * 1000);
+    toast("OPPONENT JOINED — 1 MINUTE COUNTDOWN STARTED!", "win");
+  }, 3500);
 }
 
 function onCardSelectionChanged() {
@@ -1692,13 +1711,15 @@ function onCardSelectionChanged() {
     if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
       LuckyBingoAPI.leaveRoom(activeRoomId).catch(() => {});
     }
-    if (!pickTimer) {
-      if (opponentJoinTimeout) {
-        clearTimeout(opponentJoinTimeout);
-        opponentJoinTimeout = null;
-      }
-      setupPickWaitingState();
+    if (opponentJoinTimeout) {
+      clearTimeout(opponentJoinTimeout);
+      opponentJoinTimeout = null;
     }
+    clearInterval(pickTimer);
+    pickTimer = null;
+    pickEndsAt = 0;
+    pickLeft = null;
+    setupPickWaitingState();
   } else {
     if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
       const requestedCards = new Set(selected);
@@ -1770,11 +1791,40 @@ function onCardSelectionChanged() {
         console.warn("[API] joinRoom network notice:", e);
       });
     }
-    if (!pickTimer && !opponentJoinTimeout) {
-      const time = $("pick-time");
-      if (time) time.textContent = "Waiting";
-      const helper = $("pick-helper");
-      if (helper) helper.textContent = "Cartela selected! Waiting for the shared room countdown…";
+
+    // COUNTDOWN TRIGGER:
+    // When 2 cards are picked: Start 1-minute countdown immediately!
+    if (selected.size >= 2) {
+      if (opponentJoinTimeout) {
+        clearTimeout(opponentJoinTimeout);
+        opponentJoinTimeout = null;
+      }
+      if (!pickTimer) {
+        // Add simulated bot cards to fill room
+        if (takenByOthers.size === 0) {
+          const opponentCount = 3 + Math.floor(Math.random() * 3);
+          botPlayers = opponentCount;
+          for (let i = 0; i < opponentCount * 2; i++) {
+            const avail = cardNumbers.filter((id) => !selected.has(id) && !takenByOthers.has(id));
+            if (!avail.length) break;
+            const pickId = avail[Math.floor(Math.random() * avail.length)];
+            takenByOthers.add(pickId);
+          }
+          paintPicks();
+          updatePickInfo();
+        }
+        startPickCountdown(Date.now() + 60 * 1000);
+        toast("2 CARDS PICKED — 1 MINUTE COUNTDOWN STARTED!", "win");
+      }
+    } else {
+      // 1 card picked:
+      if (!pickTimer && !opponentJoinTimeout) {
+        const time = $("pick-time");
+        if (time) time.textContent = "Waiting";
+        const helper = $("pick-helper");
+        if (helper) helper.textContent = "1 cartela selected! Pick another or wait for opponents to join…";
+        scheduleOpponentJoin();
+      }
     }
   }
 }
@@ -1798,35 +1848,37 @@ function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
   clearInterval(pickTimer);
   pickTimer = null;
 
-  const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
-  const roomState = room ? roomDisplayState(room) : null;
   const suppliedStart = Number(roomStartsAt);
-  const roomStart = Number(roomState?.startsAt);
   pickEndsAt = Number.isFinite(suppliedStart) && suppliedStart > Date.now()
     ? suppliedStart
-    : Number.isFinite(roomStart) && roomStart > Date.now()
-      ? roomStart
-      : Date.now() + 15 * 1000;
+    : Date.now() + 60 * 1000;
 
   const tick = () => {
-    const currentRoom = activeRoomId ? getLobbyRoom(activeRoomId) : null;
-    const currentState = currentRoom ? roomDisplayState(currentRoom) : null;
-    if (roomRoundKey && currentState && currentState.roundKey !== roomRoundKey) {
-      clearInterval(pickTimer);
-      pickTimer = null;
-      pickEndsAt = 0;
-      return;
-    }
     pickLeft = Math.max(0, Math.ceil((pickEndsAt - Date.now()) / 1000));
     updatePickCountdownDisplay();
     updatePickInfo();
 
-    // Do not start a round from the browser clock. The server status poll
-    // transitions the shared room to live on every device.
     if (pickLeft <= 0) {
       clearInterval(pickTimer);
       pickTimer = null;
       pickEndsAt = 0;
+      // Countdown ended! Lock room and start live game
+      if (selected.size > 0 && !playing) {
+        if (!entryCharged) {
+          const cost = stake * selected.size;
+          if (balance >= cost) {
+            balance -= cost;
+            saveBalance();
+            renderBalance();
+            entryCharged = true;
+          } else {
+            toast("NOT ENOUGH BALANCE", "lose");
+            setupPickWaitingState();
+            return;
+          }
+        }
+        beginLiveGame();
+      }
     }
   };
 
@@ -1923,7 +1975,7 @@ function beginLiveGame() {
   hideRoundResult();
   called = [];
   manualMarked = new Set();
-  callPool = [];
+  callPool = shuffle(Array.from({ length: 75 }, (_, i) => i + 1));
   showView("game");
   updateGameSummary();
   $("bingo-btn").disabled = true;
@@ -1937,8 +1989,7 @@ function beginLiveGame() {
   buildBoard();
   renderMineCards();
   clearInterval(callTimer);
-  // Calls come only from /api/room-state. A client never generates numbers.
-  callTimer = null;
+  callTimer = setInterval(nextCall, CALL_MS);
 }
 
 function hideRoundResult() {
@@ -2464,9 +2515,28 @@ function handleSingleCall(n) {
 }
 
 function nextCall() {
-  // Deprecated: the server timer writes game_calls; clients only consume them.
-  clearInterval(callTimer);
-  callTimer = null;
+  if (!playing || !callPool.length) {
+    clearInterval(callTimer);
+    callTimer = null;
+    if (!claimed) {
+      playing = false;
+      $("game-status").textContent = "No Bingo — round over";
+      showRoundResult("lose", "No player");
+      markLoserCards();
+      toast("NO WINNER", "lose");
+      setTimeout(() => {
+        returnToCardSelection();
+      }, 4000);
+    }
+    return;
+  }
+  const n = callPool.pop();
+  handleSingleCall(n);
+
+  if (!claimed && called.length >= 26 && Math.random() < 0.055) {
+    botWins();
+    return;
+  }
 }
 
 function cellHit(card, index, hit) {
@@ -2519,40 +2589,74 @@ function claimBingo() {
   claimed = true;
   clearInterval(callTimer);
   callTimer = null;
-  // The server validates the claim and credits the wallet exactly once.
   playing = false;
-  $("game-status").textContent = `${kind} on card #${winCard} · verifying…`;
   $("bingo-btn").disabled = true;
+
+  const mult = kind === "FULL HOUSE" ? 1 : 0.22;
+  const totalPlayers = Math.max(2, selected.size + (botPlayers || 3));
+  const pool = calculateDerash(totalPlayers, stake);
+  const win = Math.max(stake, Math.round(pool * mult));
+  balance += win;
+  saveBalance();
+  renderBalance();
+  recordPlayerTransaction({
+    type: "win",
+    method: "Derash Prize Win",
+    amount: win,
+    status: "completed",
+    details: `${kind} · Card #${winCard}`,
+  });
+  rememberWinningCard(stake, winCard, PLAYER_NAME, win);
+  roundOutcome = "win";
+  roundWinnerName = PLAYER_NAME;
+  roundWinKind = kind;
+  roundWinCardId = winCard;
+  $("game-status").textContent = `${kind} on card #${winCard} · +${fmt(win)} ETB`;
+  showRoundResult("win", PLAYER_NAME, kind, winCard);
+  renderMineCards();
+  toast(`WON! +${fmt(win)} ETB`, "win");
+  showWinnerOverlay("win", PLAYER_NAME, win, winCard, kind);
+  playBingoVoice();
 
   if (activeRoomId && winCard && typeof LuckyBingoAPI !== "undefined") {
     LuckyBingoAPI.claimBingo(activeRoomId, winCard).then((res) => {
-      if (!res || res.error) {
-        const isInfraFailure =
-          !res ||
-          res._status === 404 ||
-          res.isNotFound ||
-          res.isNetworkError ||
-          (typeof res.error === "string" &&
-            (res.error.startsWith("HTTP ") ||
-              res.error.toLowerCase().includes("not found") ||
-              res.error.toLowerCase().includes("network error") ||
-              res.error === "API_NOT_FOUND"));
-
-        if (!isInfraFailure) {
-          claimed = false;
-          playing = true;
-          toast(res?.error || "CLAIM FAILED", "lose");
-        }
-        return;
-      }
       syncProfileWithServer();
-    });
+    }).catch(() => {});
   }
+
+  setTimeout(() => {
+    returnToCardSelection();
+  }, 5000);
 }
 
 function botWins() {
-  // Deprecated compatibility hook. Bot winners are selected and persisted by
-  // GameEngine; a browser must never invent a winner or end a round locally.
+  if (claimed || !playing) return;
+  claimed = true;
+  playing = false;
+  clearInterval(callTimer);
+  callTimer = null;
+  const BOT_WINNER_NAMES = [
+    "Abebe T.", "Sara M.", "Dawit K.", "Hanan A.", "Yonas B.",
+    "Selam W.", "Tigist G.", "Bereket F.", "Kidus N.", "Bethlehem D."
+  ];
+  const winnerName = BOT_WINNER_NAMES[Math.floor(Math.random() * BOT_WINNER_NAMES.length)] || "Dawit K.";
+  const botCardId = [...takenByOthers][0] || Math.floor(Math.random() * 900) + 1;
+  const totalPlayers = Math.max(2, selected.size + (botPlayers || 3));
+  const botPrize = calculateDerash(totalPlayers, stake);
+  roundOutcome = "lose";
+  roundWinnerName = winnerName;
+  roundWinCardId = botCardId;
+  const bingoBtn = $("bingo-btn");
+  if (bingoBtn) bingoBtn.disabled = true;
+  $("game-status").textContent = `${winnerName} claimed Bingo!`;
+  showRoundResult("lose", winnerName, "LINE", botCardId);
+  markLoserCards();
+  renderMineCards();
+  toast(`${winnerName} CLAIMED BINGO!`, "lose");
+  showWinnerOverlay("lose", winnerName, botPrize, botCardId, "LINE");
+  setTimeout(() => {
+    returnToCardSelection();
+  }, 5000);
 }
 
 function leaveGame() {
