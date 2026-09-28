@@ -1705,9 +1705,60 @@ function onCardSelectionChanged() {
       LuckyBingoAPI.joinRoom(activeRoomId, Array.from(requestedCards)).then((res) => {
         if (!res || res.error) {
           console.warn("[API] joinRoom notice:", res?.error);
+
+          if (res?.requires_contact) {
+            selected = new Set();
+            paintPicks();
+            renderCartelaPreview();
+            updatePickInfo();
+            syncProfileWithServer();
+            toast("SHARE YOUR TELEGRAM CONTACT TO PLAY", "lose");
+            return;
+          }
+
+          if (res?.error === "Insufficient balance") {
+            selected = new Set();
+            paintPicks();
+            renderCartelaPreview();
+            updatePickInfo();
+            syncProfileWithServer();
+            toast("NOT ENOUGH BALANCE", "lose");
+            return;
+          }
+
+          if (res?.error === "Game in progress, please wait") {
+            selected = new Set();
+            paintPicks();
+            renderCartelaPreview();
+            updatePickInfo();
+            syncProfileWithServer();
+            toast("GAME IN PROGRESS, PLEASE WAIT", "lose");
+            return;
+          }
+
+          const isInfraFailure =
+            !res ||
+            res._status === 404 ||
+            res.isNotFound ||
+            res.isNetworkError ||
+            (typeof res.error === "string" &&
+              (res.error.startsWith("HTTP ") ||
+                res.error.toLowerCase().includes("not found") ||
+                res.error.toLowerCase().includes("network error") ||
+                res.error === "API_NOT_FOUND"));
+
+          if (isInfraFailure) {
+            // Static host (e.g. Vercel) or server offline fallback:
+            // KEEP the selected cards! Do NOT wipe selected! Do NOT toast "HTTP 404"!
+            return;
+          }
+
           selected = new Set();
+          paintPicks();
+          renderCartelaPreview();
+          updatePickInfo();
           syncProfileWithServer();
-          toast(res?.requires_contact ? "SHARE YOUR TELEGRAM CONTACT TO PLAY" : (res?.error || "Unable to join this room"), "lose");
+          toast(res.error, "lose");
           return;
         }
         if (typeof res.balance === "number") {
@@ -1717,9 +1768,6 @@ function onCardSelectionChanged() {
         syncProfileWithServer();
       }).catch((e) => {
         console.warn("[API] joinRoom network notice:", e);
-        selected = new Set();
-        syncProfileWithServer();
-        toast("Unable to reach the game server", "lose");
       });
     }
     if (!pickTimer && !opponentJoinTimeout) {
@@ -2479,9 +2527,22 @@ function claimBingo() {
   if (activeRoomId && winCard && typeof LuckyBingoAPI !== "undefined") {
     LuckyBingoAPI.claimBingo(activeRoomId, winCard).then((res) => {
       if (!res || res.error) {
-        claimed = false;
-        playing = true;
-        toast(res?.error || "CLAIM FAILED", "lose");
+        const isInfraFailure =
+          !res ||
+          res._status === 404 ||
+          res.isNotFound ||
+          res.isNetworkError ||
+          (typeof res.error === "string" &&
+            (res.error.startsWith("HTTP ") ||
+              res.error.toLowerCase().includes("not found") ||
+              res.error.toLowerCase().includes("network error") ||
+              res.error === "API_NOT_FOUND"));
+
+        if (!isInfraFailure) {
+          claimed = false;
+          playing = true;
+          toast(res?.error || "CLAIM FAILED", "lose");
+        }
         return;
       }
       syncProfileWithServer();

@@ -11,11 +11,25 @@ const LuckyBingoAPI = (() => {
 
   function getBaseUrl() {
     if (_baseUrl) return _baseUrl;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const apiParam = params.get("api");
+      if (apiParam) {
+        _baseUrl = apiParam.replace(/\/+$/, "");
+        localStorage.setItem("lb_api_url", _baseUrl);
+        return _baseUrl;
+      }
+    } catch (e) {}
+
+    const configuredUrl = window.LUCKY_BINGO_API_URL || localStorage.getItem("lb_api_url");
+    if (configuredUrl) {
+      _baseUrl = configuredUrl.replace(/\/+$/, "");
+      return _baseUrl;
+    }
+
     const currentHost = window.location.hostname;
     if (currentHost === "localhost" || currentHost === "127.0.0.1") {
       _baseUrl = "";
-    } else if (currentHost.includes("vercel.app")) {
-      _baseUrl = window.LUCKY_BINGO_API_URL || "";
     } else {
       _baseUrl = "";
     }
@@ -85,19 +99,28 @@ const LuckyBingoAPI = (() => {
       });
 
       if (!response.ok) {
-        let errorMsg = `HTTP ${response.status}`;
+        let errorMsg = response.status === 404 ? "API_NOT_FOUND" : `HTTP ${response.status}`;
+        let parsed = null;
         try {
           const text = await response.text();
-          const parsed = JSON.parse(text);
+          parsed = JSON.parse(text);
           if (parsed && parsed.error) errorMsg = String(parsed.error);
         } catch (e) {}
-        return { error: errorMsg, _status: response.status };
+        return {
+          error: errorMsg,
+          _status: response.status,
+          isNotFound: response.status === 404,
+          requires_contact: Boolean(parsed && parsed.requires_contact),
+        };
       }
 
       return await response.json();
     } catch (e) {
-      console.error("[API] Request failed:", path, e);
-      return { error: "Network error. Please check your connection." };
+      console.warn("[API] Request failed:", path, e);
+      return {
+        error: "Network error. Please check your connection.",
+        isNetworkError: true,
+      };
     }
   }
 
