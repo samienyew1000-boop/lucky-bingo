@@ -6,6 +6,39 @@ const ROOM_CATALOG_KEY = "lucky-bingo-room-catalog-v1";
 const ROOM_LIFECYCLE_KEY = "lucky-bingo-room-lifecycle-v1";
 const WINNING_PATTERN_OPTIONS = Object.freeze(["1", "2", "3", "4", "full-house"]);
 
+const ADMIN_AUTH_CONFIG = {
+  validUsers: ["su121316", "samtesfa19"],
+  password: "Sj$0332#89",
+};
+
+function checkAdminAuth() {
+  return sessionStorage.getItem("lb_admin_auth") === "true";
+}
+
+function updateAdminUIAuth(isAuthenticated, username = "") {
+  const overlay = $("admin-login-overlay");
+  const shell = $("admin-shell");
+  if (!overlay || !shell) return;
+
+  if (isAuthenticated) {
+    overlay.hidden = true;
+    shell.style.display = "";
+    if (username) {
+      const displayUser = username.startsWith("@") ? username : "@" + username;
+      if ($("admin-user-name")) $("admin-user-name").textContent = displayUser;
+      if ($("admin-user-role")) $("admin-user-role").textContent = "Super administrator";
+    }
+  } else {
+    overlay.hidden = false;
+    shell.style.display = "none";
+    const userInp = $("admin-login-username");
+    if (userInp) {
+      if (!userInp.value) userInp.value = "@Su121316";
+      setTimeout(() => $("admin-login-password")?.focus(), 50);
+    }
+  }
+}
+
 const $ = (id) => document.getElementById(id);
 
 const DEFAULT_STATE = {
@@ -1077,9 +1110,58 @@ function bindEvents() {
     showSection("transactions");
     showToast(`${pendingTransactions().length} transaction request${pendingTransactions().length === 1 ? "" : "s"} need review.`);
   });
+  const loginForm = $("admin-login-form");
+  if (loginForm) {
+    loginForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const uInput = $("admin-login-username")?.value || "";
+      const pInput = $("admin-login-password")?.value || "";
+      const errorEl = $("admin-login-error");
+
+      const cleanUser = uInput.trim().replace(/^@/, "").toLowerCase();
+      const cleanPass = pInput.trim();
+
+      if (ADMIN_AUTH_CONFIG.validUsers.includes(cleanUser) && cleanPass === ADMIN_AUTH_CONFIG.password) {
+        if (errorEl) errorEl.hidden = true;
+        sessionStorage.setItem("lb_admin_auth", "true");
+        const formattedUser = uInput.trim().startsWith("@") ? uInput.trim() : "@" + uInput.trim();
+        sessionStorage.setItem("lb_admin_user", formattedUser);
+        updateAdminUIAuth(true, formattedUser);
+        showToast(`Welcome ${formattedUser}! Admin console unlocked.`);
+      } else {
+        if (errorEl) {
+          errorEl.textContent = "Invalid username or password. Please try again.";
+          errorEl.hidden = false;
+        }
+        const passInp = $("admin-login-password");
+        if (passInp) {
+          passInp.value = "";
+          passInp.focus();
+        }
+      }
+    });
+  }
+
+  const passToggle = $("admin-password-toggle");
+  if (passToggle) {
+    passToggle.addEventListener("click", () => {
+      const passInput = $("admin-login-password");
+      if (!passInput) return;
+      if (passInput.type === "password") {
+        passInput.type = "text";
+        passToggle.textContent = "🙈";
+      } else {
+        passInput.type = "password";
+        passToggle.textContent = "👁";
+      }
+    });
+  }
+
   $("admin-signout").addEventListener("click", () => {
+    sessionStorage.removeItem("lb_admin_auth");
+    sessionStorage.removeItem("lb_admin_user");
+    updateAdminUIAuth(false);
     showToast("Signed out of the admin console.");
-    setTimeout(() => { window.location.href = "index.html"; }, 700);
   });
   $("clear-activity").addEventListener("click", () => {
     state.activities = [];
@@ -1130,6 +1212,10 @@ function bindEvents() {
 }
 
 function initialise() {
+  const isAuth = checkAdminAuth();
+  const savedUser = sessionStorage.getItem("lb_admin_user") || "@Su121316";
+  updateAdminUIAuth(isAuth, savedUser);
+
   bindSettings();
   bindEvents();
   renderAll();

@@ -84,6 +84,7 @@ raw_phones = os.getenv("ADMIN_PHONES", "+251939292694,+251999909474,0999909474")
 ADMIN_PHONES = [p.strip() for p in raw_phones.split(",") if p.strip()]
 raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", "5663531258")
 ADMIN_TELEGRAM_IDS = [int(i.strip()) for i in raw_ids.split(",") if i.strip().isdigit()]
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Sj$0332#89")
 
 DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 DB_PATH = os.path.join(DB_DIR, "lucky_bingo.db")
@@ -1769,6 +1770,19 @@ def start_background_web_server() -> None:
             return super().do_GET()
             
         def do_POST(self):
+            parsed_path = urllib.parse.urlparse(self.path).path
+            if parsed_path == '/api/admin/login':
+                try:
+                    content_length = int(self.headers.get('Content-Length', 0))
+                    body = json.loads(self.rfile.read(content_length))
+                except Exception:
+                    return self.send_json({'error': 'Invalid JSON'}, status=400)
+                u = str(body.get('username', '')).strip().lstrip('@').lower()
+                p = str(body.get('password', '')).strip()
+                if u in [adm.lower() for adm in ADMIN_USERNAMES] and p == ADMIN_PASSWORD:
+                    return self.send_json({'ok': True, 'username': u, 'role': 'admin'})
+                return self.send_json({'error': 'Invalid credentials'}, status=401)
+
             if self.path.startswith('/api/'):
                 user = self.get_user_from_headers()
                 if not user:
