@@ -2193,7 +2193,16 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(button_callback))
 
     print("[INFO] Lucky Bingo Bot is starting... Polling for updates.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    try:
+        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    except Exception as e:
+        logger.warning("Telegram polling paused or running in cloud instance: %s", e)
+        # Keep background web server and game engine alive
+        try:
+            while True:
+                time.sleep(3600)
+        except (KeyboardInterrupt, SystemExit):
+            pass
 
 if __name__ == "__main__":
     main()

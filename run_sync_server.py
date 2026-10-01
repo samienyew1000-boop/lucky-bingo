@@ -12,6 +12,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MIRROR_DIR = r"C:\Users\HP\Desktop\telegram bot bingo"
 CLOUDFLARED_EXE = os.path.join(BASE_DIR, "cloudflared.exe")
 
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 def update_api_config(tunnel_url: str):
     """Updates api-config.js so every phone connects to this tunnel URL."""
     config_content = f'''// Lucky Bingo API Configuration
