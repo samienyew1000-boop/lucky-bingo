@@ -42,13 +42,13 @@ def update_api_config(tunnel_url: str):
     DEFAULT_BACKEND_URL;
 }})();
 '''
-    config_path = os.path.join(BASE_DIR, "api-config.js")
+    config_path = os.path.join(BASE_DIR, "app-config.js")
     with open(config_path, "w", encoding="utf-8") as f:
         f.write(config_content)
     
     if os.path.isdir(MIRROR_DIR):
         try:
-            shutil.copy2(config_path, os.path.join(MIRROR_DIR, "api-config.js"))
+            shutil.copy2(config_path, os.path.join(MIRROR_DIR, "app-config.js"))
         except Exception:
             pass
 
