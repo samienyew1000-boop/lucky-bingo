@@ -28,9 +28,13 @@ function updateAdminUIAuth(isAuthenticated, username = "") {
       if ($("admin-user-name")) $("admin-user-name").textContent = displayUser;
       if ($("admin-user-role")) $("admin-user-role").textContent = "Super administrator";
     }
+    syncAdminWithServer();
   } else {
     overlay.hidden = false;
     shell.style.display = "none";
+    if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.stopAdminPoll) {
+      LuckyBingoAPI.stopAdminPoll();
+    }
     const userInp = $("admin-login-username");
     if (userInp) {
       if (!userInp.value) userInp.value = "@Su121316";
@@ -639,6 +643,9 @@ function startNewRound(room = currentRoom()) {
   room.status = "live";
   room.prizePool = (Number(room.players) || 0) * (Number(room.stake) || 0);
   addActivity(`Started ${room.roundId} in the ${room.stake} ETB room`, "game", "◉");
+  if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.updateAdminRoom) {
+    LuckyBingoAPI.updateAdminRoom(room.id, "force_countdown", { countdown_secs: 60 }).catch(() => {});
+  }
   saveState();
   renderAll();
   showSection("live");
@@ -652,8 +659,12 @@ function toggleRound() {
     startNewRound(room);
     return;
   }
-  room.status = room.status === "live" ? "paused" : "live";
+  const nextPaused = room.status === "live";
+  room.status = nextPaused ? "paused" : "live";
   addActivity(`${room.status === "paused" ? "Paused" : "Resumed"} ${room.stake} ETB room ${room.roundId}`, "game", room.status === "paused" ? "Ⅱ" : "▶");
+  if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.updateAdminRoom) {
+    LuckyBingoAPI.updateAdminRoom(room.id, nextPaused ? "pause" : "resume").catch(() => {});
+  }
   saveState();
   renderAll();
   showToast(`${room.stake} ETB room ${room.status === "live" ? "resumed" : "paused"}.`);
@@ -665,6 +676,9 @@ function endRound() {
   room.lifecycleVersion = Number(room.lifecycleVersion || 0) + 1;
   room.status = "waiting";
   addActivity(`Ended ${room.roundId} in the ${room.stake} ETB room`, "game", "■");
+  if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.updateAdminRoom) {
+    LuckyBingoAPI.updateAdminRoom(room.id, "reset").catch(() => {});
+  }
   saveState();
   renderAll();
   showToast(`${room.stake} ETB round ended. Payout review is ready.`);
@@ -767,6 +781,14 @@ function updateTransaction(id, nextStatus) {
     "finance",
     nextStatus === "approved" ? "✓" : "×"
   );
+  if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.updateAdminTransaction) {
+    const apiAction = nextStatus === "approved" ? "approve" : "reject";
+    LuckyBingoAPI.updateAdminTransaction(transaction.id, apiAction).then((res) => {
+      if (res && res.error) {
+        console.warn("[API] Transaction sync notice:", res.error);
+      }
+    }).catch(() => {});
+  }
   saveState();
   renderAll();
   showToast(`${transaction.type === "deposit" ? "Deposit" : "Withdrawal"} of ${fmt(amount)} ETB ${nextStatus}.`);
@@ -1124,9 +1146,17 @@ function bindEvents() {
       if (ADMIN_AUTH_CONFIG.validUsers.includes(cleanUser) && cleanPass === ADMIN_AUTH_CONFIG.password) {
         if (errorEl) errorEl.hidden = true;
         sessionStorage.setItem("lb_admin_auth", "true");
+        sessionStorage.setItem("lb_admin_password", cleanPass);
         const formattedUser = uInput.trim().startsWith("@") ? uInput.trim() : "@" + uInput.trim();
         sessionStorage.setItem("lb_admin_user", formattedUser);
         updateAdminUIAuth(true, formattedUser);
+        if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.adminLogin) {
+          LuckyBingoAPI.adminLogin(cleanUser, cleanPass).then((res) => {
+            if (res && res.token) {
+              sessionStorage.setItem("lb_admin_token", res.token);
+            }
+          }).catch(() => {});
+        }
         showToast(`Welcome ${formattedUser}! Admin console unlocked.`);
       } else {
         if (errorEl) {
@@ -1209,6 +1239,77 @@ function bindEvents() {
       document.querySelectorAll(".admin-action-menu.is-open").forEach((menu) => menu.classList.remove("is-open"));
     }
   });
+}
+
+function syncAdminWithServer() {
+  if (typeof LuckyBingoAPI === "undefined" || !checkAdminAuth()) return;
+  LuckyBingoAPI.startAdminPoll((data) => {
+    if (!data || data.error) return;
+
+    // 1. Sync rooms from authoritative server
+    if (Array.isArray(data.rooms) && data.rooms.length > 0) {
+      data.rooms.forEach((sRoom) => {
+        const localRoom = state.rooms.find((r) => String(r.id) === String(sRoom.room_id || sRoom.id));
+        if (localRoom) {
+          localRoom.players = sRoom.player_count || (sRoom.players ? sRoom.players.length : 0);
+          localRoom.status = sRoom.status === "open" ? "waiting" : sRoom.status;
+          localRoom.enabled = sRoom.enabled !== false;
+          localRoom.roundId = `#LB-${sRoom.round_id || "0"}`;
+          localRoom.prizePool = localRoom.players * localRoom.stake;
+          localRoom.called = Array.isArray(sRoom.calls) ? sRoom.calls : [];
+          localRoom.lastCall = localRoom.called.length > 0 ? String(localRoom.called[localRoom.called.length - 1]) : "—";
+          localRoom.realPlayersList = sRoom.players || [];
+        }
+      });
+      renderRooms();
+      renderLive();
+      renderDashboard();
+    }
+
+    // 2. Sync transactions from SQLite database
+    if (Array.isArray(data.transactions) && data.transactions.length > 0) {
+      state.transactions = data.transactions.map((tx) => ({
+        id: tx.id,
+        playerId: `LB-${String(tx.user_id).slice(-5)}`,
+        userId: tx.user_id,
+        player: tx.first_name || (tx.username ? `@${tx.username}` : (tx.phone_number || "Player")),
+        type: tx.type,
+        method: tx.method,
+        amount: Number(tx.amount) || 0,
+        requested: tx.created_at || "Recent",
+        status: tx.status,
+      }));
+      renderTransactions();
+    }
+
+    // 3. Sync registered users / players from SQLite database
+    if (Array.isArray(data.players) && data.players.length > 0) {
+      state.players = data.players.map((u) => ({
+        id: `LB-${String(u.id).slice(-5)}`,
+        userId: u.id,
+        name: [u.first_name, u.last_name].filter(Boolean).join(" ") || (u.username ? `@${u.username}` : "Player"),
+        phone: u.phone_number || "—",
+        role: u.role || "player",
+        balance: Number(u.balance) || 0,
+        status: u.status || "active",
+        verified: Boolean(u.is_verified),
+        joined: u.registered_at || "Recent",
+        activeRoom: u.active_room || "Lobby",
+      }));
+      renderPlayers();
+    }
+
+    // 4. Sync metrics
+    if (data.metrics) {
+      state.metrics = {
+        ...state.metrics,
+        totalPlayers: data.metrics.totalPlayers ?? state.metrics.totalPlayers,
+        verifiedPlayers: data.metrics.verifiedPlayers ?? state.metrics.verifiedPlayers,
+        activePlayers: data.metrics.activePlayers ?? state.metrics.activePlayers,
+      };
+      renderMetrics();
+    }
+  }, 1500);
 }
 
 function initialise() {

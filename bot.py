@@ -248,6 +248,10 @@ def init_db() -> None:
         cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES ('10', 'open', 0, datetime('now'))")
         cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES ('20', 'open', 0, datetime('now'))")
         cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES ('50', 'open', 0, datetime('now'))")
+        try:
+            cursor.execute("ALTER TABLE game_rooms ADD COLUMN enabled INTEGER DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
         
         conn.commit()
     logger.info("SQLite database initialized at: %s", DB_PATH)
@@ -786,6 +790,82 @@ class GameEngine:
                 conn.commit()
                 return {'ok': True}
 
+    def admin_pause_room(self, room_id, paused=True):
+        """Admin pauses or resumes a room."""
+        with self.lock:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                status = 'paused' if paused else 'open'
+                now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute('UPDATE game_rooms SET status = ?, updated_at = ? WHERE id = ?', (status, now, str(room_id)))
+                conn.commit()
+                return {'ok': True, 'room_id': str(room_id), 'status': status}
+
+    def admin_reset_room(self, room_id):
+        """Admin resets a room to open waiting state and refunds players."""
+        with self.lock:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (str(room_id),))
+                room = cursor.fetchone()
+                if not room:
+                    return {'error': 'Room not found'}
+                round_id = room['round_id']
+                stake = int(room_id)
+                # Refund any real players in this round
+                cursor.execute('SELECT user_id, card_ids FROM room_players WHERE room_id = ? AND round_id = ?', (str(room_id), round_id))
+                for row in cursor.fetchall():
+                    try:
+                        cards = json.loads(row['card_ids'] or '[]')
+                        refund = stake * len(cards)
+                        if refund > 0:
+                            cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (refund, row['user_id']))
+                    except Exception:
+                        pass
+                if str(room_id) in self._call_timers:
+                    self._call_timers[str(room_id)].cancel()
+                    del self._call_timers[str(room_id)]
+                self._bot_players.pop(str(room_id), None)
+                new_round = round_id + 1
+                now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute('UPDATE game_rooms SET status = ?, round_id = ?, countdown_ends_at = 0, updated_at = ? WHERE id = ?', ('open', new_round, now, str(room_id)))
+                conn.commit()
+                return {'ok': True, 'room_id': str(room_id), 'status': 'open', 'round_id': new_round}
+
+    def admin_force_countdown(self, room_id, countdown_secs=60):
+        """Admin forces countdown to start immediately."""
+        with self.lock:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (str(room_id),))
+                room = cursor.fetchone()
+                if not room or room['status'] != 'open':
+                    return {'error': 'Room cannot be started (must be open)'}
+                if not self._bot_players.get(str(room_id)):
+                    self._add_bot_players(str(room_id))
+                ends_at = time.time() + countdown_secs
+                now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute('UPDATE game_rooms SET status = ?, countdown_ends_at = ?, updated_at = ? WHERE id = ?', ('countdown', ends_at, now, str(room_id)))
+                conn.commit()
+                self._schedule_game_start(str(room_id), countdown_secs)
+                return {'ok': True, 'room_id': str(room_id), 'status': 'countdown', 'ends_at': ends_at}
+
+    def admin_toggle_room_enabled(self, room_id, enabled=None):
+        """Admin toggles a room enabled/disabled."""
+        with self.lock:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT enabled FROM game_rooms WHERE id = ?', (str(room_id),))
+                row = cursor.fetchone()
+                current_enabled = 1
+                if row and 'enabled' in row.keys() and row['enabled'] is not None:
+                    current_enabled = int(row['enabled'])
+                new_val = (1 if enabled else 0) if enabled is not None else (0 if current_enabled == 1 else 1)
+                now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute('UPDATE game_rooms SET enabled = ?, updated_at = ? WHERE id = ?', (new_val, now, str(room_id)))
+                conn.commit()
+                return {'ok': True, 'room_id': str(room_id), 'enabled': bool(new_val)}
+
 # Create global game engine instance
 game_engine = GameEngine()
 
@@ -837,11 +917,17 @@ def get_payment_methods() -> Dict[str, Dict[str, Any]]:
 # ==============================================================================
 def get_main_keyboard(is_admin_user: bool = False, user_id: int = 0) -> InlineKeyboardMarkup:
     """Exact 6-row main inline keyboard, plus Admin Controls row if authorized."""
+    tunnel_url = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "")
+    base = WEB_APP_URL
+    if tunnel_url and "api=" not in base:
+        sep = "&" if "?" in base else "?"
+        base = f"{base}{sep}api={urllib.parse.quote(tunnel_url, safe='')}"
+
     if is_admin_user:
-        separator = "&" if "?" in WEB_APP_URL else "?"
-        web_app_url = f"{WEB_APP_URL}{separator}role=admin&admin=1&u={user_id}"
+        separator = "&" if "?" in base else "?"
+        web_app_url = f"{base}{separator}role=admin&admin=1&u={user_id}"
     else:
-        web_app_url = WEB_APP_URL
+        web_app_url = base
 
     keyboard = [
         # Row 1: Full-width Web App button
@@ -1643,6 +1729,114 @@ async def post_init(application: Application) -> None:
 # ==============================================================================
 # BACKGROUND WEB / HEALTH SERVER (FOR ETHIODEPLOY / CLOUD HOSTING)
 # ==============================================================================
+def get_admin_overview() -> Dict[str, Any]:
+    """Returns complete admin state from SQLite and GameEngine."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # 1. Rooms
+        rooms = []
+        for rid in ['10', '20', '50']:
+            rstate = game_engine.get_room_state(rid)
+            if rstate:
+                cursor.execute('SELECT enabled FROM game_rooms WHERE id = ?', (rid,))
+                row = cursor.fetchone()
+                rstate['enabled'] = bool(row['enabled']) if (row and 'enabled' in row.keys() and row['enabled'] is not None) else True
+                rooms.append(rstate)
+                
+        # 2. Users / Players
+        cursor.execute('''
+            SELECT id, username, first_name, last_name, phone_number, role, balance, bonus_balance, is_verified, status, registered_at, last_active 
+            FROM users ORDER BY registered_at DESC LIMIT 100
+        ''')
+        users_list = [dict(r) for r in cursor.fetchall()]
+        
+        # 3. Transactions
+        cursor.execute('''
+            SELECT t.id, t.user_id, t.type, t.method, t.amount, t.phone_number, t.status, t.created_at, u.username, u.first_name
+            FROM transactions t
+            LEFT JOIN users u ON t.user_id = u.id
+            ORDER BY t.created_at DESC LIMIT 50
+        ''')
+        txs_list = [dict(r) for r in cursor.fetchall()]
+        
+        # 4. Metrics
+        cursor.execute('SELECT COUNT(*) as total_users FROM users')
+        tot_users = cursor.fetchone()['total_users']
+        cursor.execute('SELECT COUNT(*) as ver_users FROM users WHERE is_verified = 1')
+        ver_users = cursor.fetchone()['ver_users']
+        cursor.execute('SELECT COUNT(*) as pending_tx FROM transactions WHERE status = "pending"')
+        pend_tx = cursor.fetchone()['pending_tx']
+        cursor.execute('SELECT COALESCE(SUM(amount), 0) as tot_dep FROM transactions WHERE type = "deposit" AND status = "completed"')
+        tot_dep = cursor.fetchone()['tot_dep']
+        cursor.execute('SELECT COALESCE(SUM(amount), 0) as tot_wth FROM transactions WHERE type = "withdraw" AND status = "completed"')
+        tot_wth = cursor.fetchone()['tot_wth']
+        
+        total_live_players = sum(r.get('player_count', 0) for r in rooms)
+        
+        return {
+            'rooms': rooms,
+            'players': users_list,
+            'transactions': txs_list,
+            'metrics': {
+                'totalPlayers': tot_users,
+                'verifiedPlayers': ver_users,
+                'activePlayers': total_live_players,
+                'pendingTransactions': pend_tx,
+                'totalDeposits': tot_dep,
+                'totalWithdrawals': tot_wth,
+            }
+        }
+
+def update_admin_transaction(tx_id: str, action: str) -> Dict[str, Any]:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM transactions WHERE id = ?', (tx_id,))
+        tx = cursor.fetchone()
+        if not tx:
+            return {'error': 'Transaction not found'}
+        if tx['status'] != 'pending':
+            return {'error': f"Transaction already {tx['status']}"}
+        
+        user_id = tx['user_id']
+        amount = float(tx['amount'])
+        tx_type = tx['type']
+        
+        if action == 'approve':
+            if tx_type == 'deposit':
+                cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (amount, user_id))
+            cursor.execute('UPDATE transactions SET status = ? WHERE id = ?', ('completed', tx_id))
+            conn.commit()
+            export_admin_players()
+            return {'ok': True, 'status': 'completed', 'id': tx_id}
+        elif action == 'reject':
+            if tx_type == 'withdraw':
+                cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (amount, user_id))
+            cursor.execute('UPDATE transactions SET status = ? WHERE id = ?', ('rejected', tx_id))
+            conn.commit()
+            export_admin_players()
+            return {'ok': True, 'status': 'rejected', 'id': tx_id}
+        else:
+            return {'error': 'Invalid action'}
+
+def update_admin_user(user_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, balance FROM users WHERE id = ?', (user_id,))
+        u = cursor.fetchone()
+        if not u:
+            return {'error': 'User not found'}
+        if 'balance' in updates:
+            new_bal = float(updates['balance'])
+            cursor.execute('UPDATE users SET balance = ? WHERE id = ?', (new_bal, user_id))
+        if 'is_verified' in updates:
+            cursor.execute('UPDATE users SET is_verified = ? WHERE id = ?', (int(bool(updates['is_verified'])), user_id))
+        if 'status' in updates:
+            cursor.execute('UPDATE users SET status = ? WHERE id = ?', (str(updates['status']), user_id))
+        conn.commit()
+        export_admin_players()
+        return {'ok': True, 'user_id': user_id}
+
 def start_background_web_server() -> None:
     """Runs background HTTP server(s) to respond to API requests, health checks, and serve the webapp."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1658,17 +1852,30 @@ def start_background_web_server() -> None:
             
         def send_cors_headers(self):
             self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Telegram-Init-Data, X-Telegram-User-Id')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Telegram-Init-Data, X-Telegram-User-Id, X-Admin-Token, X-Admin-Password, Authorization')
             
         def do_OPTIONS(self):
             self.send_response(200)
             self.send_cors_headers()
             self.end_headers()
             
+        def is_admin_request(self) -> bool:
+            user = self.get_user_from_headers()
+            if user and is_admin_check(user.get('id', 0), user.get('username', '')):
+                return True
+            token = self.headers.get('X-Admin-Token', '')
+            admin_pwd = self.headers.get('X-Admin-Password', '')
+            auth_header = self.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ', 1)[1].strip()
+            expected_token = hashlib.sha256(f"su121316:{ADMIN_PASSWORD}".encode()).hexdigest()
+            alt_token = hashlib.sha256(f"samtesfa19:{ADMIN_PASSWORD}".encode()).hexdigest()
+            if token in (expected_token, alt_token) or admin_pwd == ADMIN_PASSWORD:
+                return True
+            return False
+
         def get_user_from_headers(self):
-            # Telegram WebApp initData is signed and is the production identity
-            # source. Never accept a client-provided numeric ID in production.
             init_data = self.headers.get('X-Telegram-Init-Data', '')
             if init_data:
                 return validate_telegram_webapp(init_data)
@@ -1693,20 +1900,51 @@ def start_background_web_server() -> None:
             if self.path in ("/health", "/healthz", "/ping"):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain")
+                self.send_cors_headers()
                 self.end_headers()
                 self.wfile.write(b"OK")
                 return
                 
             if self.path.startswith('/api/'):
-                user = self.get_user_from_headers()
-                if not user:
-                    return self.send_json({'error': 'Unauthorized'}, status=401)
-                    
                 parsed_path = urllib.parse.urlparse(self.path)
                 path = parsed_path.path
                 query = dict(urllib.parse.parse_qsl(parsed_path.query))
                 
-                if path == '/api/me':
+                # 1. Public lobby rooms & room state (accessible to all devices)
+                if path == '/api/rooms':
+                    rooms_info = []
+                    for rid in ['10', '20', '50']:
+                        state = game_engine.get_room_state(rid)
+                        if state:
+                            result = game_engine.get_round_result(rid)
+                            if result:
+                                state['last_result'] = result
+                            rooms_info.append(state)
+                    return self.send_json({'rooms': rooms_info})
+                    
+                elif path == '/api/room-state':
+                    room_id = query.get('room_id')
+                    if not room_id:
+                        return self.send_json({'error': 'Missing room_id'}, status=400)
+                    state = game_engine.get_room_state(room_id)
+                    if not state:
+                        return self.send_json({'error': 'Room not found'}, status=404)
+                    result = game_engine.get_round_result(room_id)
+                    if result:
+                        state['last_result'] = result
+                    return self.send_json(state)
+
+                # 2. Admin overview (all rooms, active players, real users, transactions, metrics)
+                elif path == '/api/admin/overview':
+                    if not self.is_admin_request():
+                        return self.send_json({'error': 'Unauthorized'}, status=401)
+                    return self.send_json(get_admin_overview())
+                
+                # 3. User profile endpoint
+                elif path == '/api/me':
+                    user = self.get_user_from_headers()
+                    if not user:
+                        return self.send_json({'error': 'Unauthorized'}, status=401)
                     db_user = get_or_create_user(
                         user_id=user.get('id', 0),
                         username=user.get('username', ''),
@@ -1735,33 +1973,6 @@ def start_background_web_server() -> None:
                             response['active_room']['card_ids'] = []
                     return self.send_json(response)
                     
-                elif path == '/api/rooms':
-                    rooms_info = []
-                    for rid in ['10', '20', '50']:
-                        state = game_engine.get_room_state(rid)
-                        if state:
-                            # Add round result if any
-                            result = game_engine.get_round_result(rid)
-                            if result:
-                                state['last_result'] = result
-                            rooms_info.append(state)
-                    return self.send_json({'rooms': rooms_info})
-                    
-                elif path == '/api/room-state':
-                    room_id = query.get('room_id')
-                    if not room_id:
-                        return self.send_json({'error': 'Missing room_id'}, status=400)
-                        
-                    state = game_engine.get_room_state(room_id)
-                    if not state:
-                        return self.send_json({'error': 'Room not found'}, status=404)
-                        
-                    result = game_engine.get_round_result(room_id)
-                    if result:
-                        state['last_result'] = result
-                        
-                    return self.send_json(state)
-                    
                 else:
                     return self.send_json({'error': 'Not found'}, status=404)
                     
@@ -1771,32 +1982,74 @@ def start_background_web_server() -> None:
             
         def do_POST(self):
             parsed_path = urllib.parse.urlparse(self.path).path
-            if parsed_path == '/api/admin/login':
+            body = {}
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
                 try:
-                    content_length = int(self.headers.get('Content-Length', 0))
                     body = json.loads(self.rfile.read(content_length))
                 except Exception:
                     return self.send_json({'error': 'Invalid JSON'}, status=400)
+
+            # 1. Admin login
+            if parsed_path == '/api/admin/login':
                 u = str(body.get('username', '')).strip().lstrip('@').lower()
                 p = str(body.get('password', '')).strip()
                 if u in [adm.lower() for adm in ADMIN_USERNAMES] and p == ADMIN_PASSWORD:
-                    return self.send_json({'ok': True, 'username': u, 'role': 'admin'})
+                    token = hashlib.sha256(f"{u}:{ADMIN_PASSWORD}".encode()).hexdigest()
+                    return self.send_json({'ok': True, 'username': u, 'token': token, 'role': 'admin'})
                 return self.send_json({'error': 'Invalid credentials'}, status=401)
 
+            # 2. Admin room control
+            if parsed_path == '/api/admin/room/update':
+                if not self.is_admin_request():
+                    return self.send_json({'error': 'Unauthorized'}, status=401)
+                room_id = str(body.get('room_id', ''))
+                action = str(body.get('action', ''))
+                if not room_id:
+                    return self.send_json({'error': 'Missing room_id'}, status=400)
+                if action == 'pause':
+                    res = game_engine.admin_pause_room(room_id, paused=True)
+                elif action == 'resume':
+                    res = game_engine.admin_pause_room(room_id, paused=False)
+                elif action == 'reset':
+                    res = game_engine.admin_reset_room(room_id)
+                elif action == 'force_countdown':
+                    secs = int(body.get('countdown_secs', 60))
+                    res = game_engine.admin_force_countdown(room_id, countdown_secs=secs)
+                elif action == 'toggle_enabled':
+                    res = game_engine.admin_toggle_room_enabled(room_id)
+                else:
+                    return self.send_json({'error': f'Unknown action: {action}'}, status=400)
+                return self.send_json(res)
+
+            # 3. Admin transaction control
+            if parsed_path == '/api/admin/transaction/update':
+                if not self.is_admin_request():
+                    return self.send_json({'error': 'Unauthorized'}, status=401)
+                tx_id = str(body.get('id', ''))
+                action = str(body.get('action', ''))
+                if not tx_id or not action:
+                    return self.send_json({'error': 'Missing id or action'}, status=400)
+                res = update_admin_transaction(tx_id, action)
+                return self.send_json(res, status=200 if res.get('ok') else 400)
+
+            # 4. Admin user control
+            if parsed_path == '/api/admin/user/update':
+                if not self.is_admin_request():
+                    return self.send_json({'error': 'Unauthorized'}, status=401)
+                user_id = int(body.get('user_id', 0))
+                if not user_id:
+                    return self.send_json({'error': 'Missing user_id'}, status=400)
+                res = update_admin_user(user_id, body)
+                return self.send_json(res)
+
+            # 5. Player authenticated endpoints
             if self.path.startswith('/api/'):
                 user = self.get_user_from_headers()
                 if not user:
                     return self.send_json({'error': 'Unauthorized'}, status=401)
-                    
-                try:
-                    content_length = int(self.headers['Content-Length'])
-                    body = json.loads(self.rfile.read(content_length))
-                except Exception:
-                    return self.send_json({'error': 'Invalid JSON'}, status=400)
-                    
-                path = urllib.parse.urlparse(self.path).path
-                
-                if path == '/api/join-room':
+
+                if parsed_path == '/api/join-room':
                     room_id = body.get('room_id')
                     card_ids = body.get('card_ids', [])
                     if not room_id or not isinstance(card_ids, list):
@@ -1819,24 +2072,22 @@ def start_background_web_server() -> None:
                     result = game_engine.join_room(str(room_id), user.get('id', 0), card_ids)
                     return self.send_json(result, status=200 if result.get('ok') else 400)
                     
-                elif path == '/api/leave-room':
+                elif parsed_path == '/api/leave-room':
                     room_id = body.get('room_id')
                     if not room_id:
                         return self.send_json({'error': 'Invalid request'}, status=400)
-                        
                     result = game_engine.leave_room(str(room_id), user.get('id', 0))
                     return self.send_json(result)
                     
-                elif path == '/api/claim-bingo':
+                elif parsed_path == '/api/claim-bingo':
                     room_id = body.get('room_id')
                     card_id = body.get('card_id')
                     if not room_id or not card_id:
                         return self.send_json({'error': 'Invalid request'}, status=400)
-                        
                     result = game_engine.claim_bingo(str(room_id), user.get('id', 0), card_id)
                     return self.send_json(result)
 
-                elif path == '/api/deposit':
+                elif parsed_path == '/api/deposit':
                     amount = float(body.get('amount', 0))
                     method = str(body.get('method', 'Telebirr'))
                     reference = str(body.get('reference', ''))
@@ -1855,7 +2106,7 @@ def start_background_web_server() -> None:
                     export_admin_players()
                     return self.send_json({'ok': True, 'id': tx_id})
 
-                elif path == '/api/withdraw':
+                elif parsed_path == '/api/withdraw':
                     amount = float(body.get('amount', 0))
                     method = str(body.get('method', 'Telebirr'))
                     phone = str(body.get('phone', ''))
@@ -1895,7 +2146,7 @@ def start_background_web_server() -> None:
                     logger.info("Background HTTP/API server listening on port %d", port_num)
                     server.serve_forever()
                 except Exception as e:
-                    logger.debug("Port %d bind skipped: %s", port_num, e)
+                    logger.warning("Port %d bind skipped or failed: %s", port_num, e)
             return serve
 
         t = threading.Thread(target=make_serve(p), daemon=True)

@@ -85,6 +85,15 @@ const LuckyBingoAPI = (() => {
       ...options.headers,
     };
 
+    const adminToken = sessionStorage.getItem("lb_admin_token") || localStorage.getItem("lb_admin_token");
+    if (adminToken) {
+      headers["X-Admin-Token"] = adminToken;
+    }
+    const adminPwd = sessionStorage.getItem("lb_admin_password") || localStorage.getItem("lb_admin_password");
+    if (adminPwd) {
+      headers["X-Admin-Password"] = adminPwd;
+    }
+
     // In production, the server must authenticate the signed initData. The
     // numeric header is sent only for explicitly enabled local development.
     const user = getTelegramUser();
@@ -238,8 +247,78 @@ const LuckyBingoAPI = (() => {
     }
   }
 
+  async function adminLogin(username, password) {
+    const res = await apiRequest("/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+    if (res && res.ok && res.token) {
+      sessionStorage.setItem("lb_admin_token", res.token);
+      sessionStorage.setItem("lb_admin_auth", "true");
+      sessionStorage.setItem("lb_admin_user", res.username || username);
+      localStorage.setItem("lb_admin_token", res.token);
+    }
+    return res;
+  }
+
+  async function getAdminOverview() {
+    return apiRequest("/api/admin/overview");
+  }
+
+  async function updateAdminRoom(roomId, action, extra = {}) {
+    return apiRequest("/api/admin/room/update", {
+      method: "POST",
+      body: JSON.stringify({ room_id: String(roomId), action, ...extra }),
+    });
+  }
+
+  async function updateAdminTransaction(txId, action) {
+    return apiRequest("/api/admin/transaction/update", {
+      method: "POST",
+      body: JSON.stringify({ id: String(txId), action }),
+    });
+  }
+
+  async function updateAdminUser(userId, updates = {}) {
+    return apiRequest("/api/admin/user/update", {
+      method: "POST",
+      body: JSON.stringify({ user_id: Number(userId), ...updates }),
+    });
+  }
+
+  let _adminPollTimer = null;
+  let _adminPollCallback = null;
+
+  function startAdminPoll(callback, intervalMs = 1500) {
+    stopAdminPoll();
+    _adminPollCallback = callback;
+
+    async function poll() {
+      if (!_adminPollCallback) return;
+      const data = await getAdminOverview();
+      if (_adminPollCallback) {
+        _adminPollCallback(data);
+      }
+      if (_adminPollCallback) {
+        _adminPollTimer = setTimeout(poll, intervalMs);
+      }
+    }
+    poll();
+  }
+
+  function stopAdminPoll() {
+    _adminPollCallback = null;
+    if (_adminPollTimer) {
+      clearTimeout(_adminPollTimer);
+      _adminPollTimer = null;
+    }
+  }
+
   function setBaseUrl(url) {
     _baseUrl = url.replace(/\/+$/, "");
+    try {
+      localStorage.setItem("lb_api_url", _baseUrl);
+    } catch (e) {}
   }
 
   return {
@@ -256,7 +335,15 @@ const LuckyBingoAPI = (() => {
     startLobbyPoll,
     stopLobbyPoll,
     setBaseUrl,
+    getBaseUrl,
     getTelegramUser,
     getInitData,
+    adminLogin,
+    getAdminOverview,
+    updateAdminRoom,
+    updateAdminTransaction,
+    updateAdminUser,
+    startAdminPoll,
+    stopAdminPoll,
   };
 })();

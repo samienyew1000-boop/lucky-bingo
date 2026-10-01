@@ -233,12 +233,37 @@ function handleServerRoomState(sState) {
   serverRoomStates[rid] = { ...serverRoomStates[rid], ...sState };
   if (activeRoomId && rid !== String(activeRoomId)) return;
   if (Array.isArray(sState.players)) {
-    const mine = sState.players.find((player) => {
-      const current = LuckyBingoAPI?.getTelegramUser?.();
-      return current && Number(player.user_id) === Number(current.id);
+    const current = LuckyBingoAPI?.getTelegramUser?.();
+    const myId = current ? Number(current.id) : null;
+    const newTaken = new Set();
+    
+    sState.players.forEach((player) => {
+      const isMine = myId && Number(player.user_id) === myId;
+      try {
+        const cIds = JSON.parse(player.card_ids || "[]").map(Number);
+        if (isMine) {
+          if (!playing && !gameWaiting) {
+            selected = new Set(cIds);
+          }
+        } else {
+          cIds.forEach((id) => newTaken.add(id));
+        }
+      } catch (e) {}
     });
-    if (mine && !playing && !gameWaiting) {
-      try { selected = new Set(JSON.parse(mine.card_ids || "[]").map(Number)); } catch (e) {}
+
+    if (Array.isArray(sState.bot_players)) {
+      sState.bot_players.forEach((bot) => {
+        if (Array.isArray(bot.card_ids)) {
+          bot.card_ids.forEach((id) => newTaken.add(Number(id)));
+        }
+      });
+    }
+
+    takenByOthers = newTaken;
+    if (!playing) {
+      paintPicks();
+      updatePickInfo();
+      renderPickRoomSummary();
     }
   }
 
