@@ -11,7 +11,7 @@
   }
 
   // Pre-configured cloud or tunnel backend URL
-  const DEFAULT_BACKEND_URL = "https://today-yea-complement-root.trycloudflare.com";
+  const DEFAULT_BACKEND_URL = "https://colour-leather-privacy-skip.trycloudflare.com";
 
   window.LUCKY_BINGO_API_URL =
     window.LUCKY_BINGO_API_URL ||

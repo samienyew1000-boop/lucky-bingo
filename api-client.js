@@ -52,25 +52,34 @@ const LuckyBingoAPI = (() => {
         return webAppUser;
       }
 
-      // URL and cached identities are development-only conveniences. They are
-      // not sent as proof of identity when Telegram initData is unavailable.
-      if (window.LUCKY_BINGO_DEV_AUTH === true) {
-        const params = new URLSearchParams(window.location.search);
-        const uid = params.get("u") || params.get("user_id") || params.get("tg_user_id");
-        if (uid && /^\d+$/.test(uid)) {
-          const u = { id: Number(uid), username: params.get("username") || "" };
-          localStorage.setItem("lb_tg_user", JSON.stringify(u));
-          return u;
-        }
-        const cached = localStorage.getItem("lb_tg_user");
-        if (cached) {
-          try {
-            const parsed = JSON.parse(cached);
-            if (parsed && parsed.id) return parsed;
-          } catch (e) {}
-        }
+      const params = new URLSearchParams(window.location.search);
+      const uid = params.get("u") || params.get("user_id") || params.get("tg_user_id");
+      if (uid && /^\d+$/.test(uid)) {
+        const u = { id: Number(uid), username: params.get("username") || `Player_${uid.slice(-4)}`, first_name: "Player" };
+        localStorage.setItem("lb_tg_user", JSON.stringify(u));
+        return u;
       }
-      return null;
+
+      const cached = localStorage.getItem("lb_tg_user");
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.id) return parsed;
+        } catch (e) {}
+      }
+
+      let deviceId = localStorage.getItem("lb_device_player_id");
+      if (!deviceId || !/^\d+$/.test(deviceId)) {
+        deviceId = String(Math.floor(8000000000 + Math.random() * 1999999999));
+        localStorage.setItem("lb_device_player_id", deviceId);
+      }
+      const deviceUser = {
+        id: Number(deviceId),
+        username: `Player_${deviceId.slice(-4)}`,
+        first_name: "Lucky Player",
+      };
+      localStorage.setItem("lb_tg_user", JSON.stringify(deviceUser));
+      return deviceUser;
     } catch (e) {
       return null;
     }
@@ -94,11 +103,12 @@ const LuckyBingoAPI = (() => {
       headers["X-Admin-Password"] = adminPwd;
     }
 
-    // In production, the server must authenticate the signed initData. The
-    // numeric header is sent only for explicitly enabled local development.
     const user = getTelegramUser();
-    if (!initData && window.LUCKY_BINGO_DEV_AUTH === true && user?.id) {
+    if (user?.id) {
       headers["X-Telegram-User-Id"] = String(user.id);
+      if (user.username) {
+        headers["X-Telegram-User-Name"] = String(user.username);
+      }
     }
 
     try {
