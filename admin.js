@@ -1154,9 +1154,11 @@ function bindEvents() {
           LuckyBingoAPI.adminLogin(cleanUser, cleanPass).then((res) => {
             if (res && res.token) {
               sessionStorage.setItem("lb_admin_token", res.token);
+              syncAdminWithServer();
             }
           }).catch(() => {});
         }
+        syncAdminWithServer();
         showToast(`Welcome ${formattedUser}! Admin console unlocked.`);
       } else {
         if (errorEl) {
@@ -1316,6 +1318,9 @@ function initialise() {
   const isAuth = checkAdminAuth();
   const savedUser = sessionStorage.getItem("lb_admin_user") || "@Su121316";
   updateAdminUIAuth(isAuth, savedUser);
+  if (isAuth) {
+    syncAdminWithServer();
+  }
 
   bindSettings();
   bindEvents();

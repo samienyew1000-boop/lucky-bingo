@@ -31,6 +31,19 @@ window.LUCKY_BINGO_PAYMENT_METHODS = {
 };
 window.LUCKY_BINGO_PLAYERS = [
   {
+    "id": "TG-1314310785",
+    "name": "Gizachew Abay",
+    "username": "@gizuye16",
+    "email": "gizuye16@t.me",
+    "phone": "+251918738918",
+    "balance": 50.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 1314310785)"
+  },
+  {
     "id": "TG-7540599759",
     "name": "Br4",
     "username": "@abescd",

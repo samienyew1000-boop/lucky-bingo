@@ -2192,17 +2192,28 @@ def main() -> None:
     # Inline button callback router
     app.add_handler(CallbackQueryHandler(button_callback))
 
+    async def global_error_handler(update, context):
+        err_name = type(context.error).__name__
+        if "Conflict" in err_name:
+            logger.info("Telegram polling conflict: Another bot poller is active. Background API server and game engine remain 100% active.")
+            return
+        logger.error("Exception while handling an update:", exc_info=context.error)
+
+    app.add_error_handler(global_error_handler)
+
     print("[INFO] Lucky Bingo Bot is starting... Polling for updates.")
     try:
         app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
     except Exception as e:
-        logger.warning("Telegram polling paused or running in cloud instance: %s", e)
-        # Keep background web server and game engine alive
-        try:
-            while True:
-                time.sleep(3600)
-        except (KeyboardInterrupt, SystemExit):
-            pass
+        logger.warning("Telegram polling finished or running elsewhere: %s", e)
+    
+    # Always keep background web server and game engine alive
+    print("[INFO] Authoritative multi-device game engine & API server are running.")
+    try:
+        while True:
+            time.sleep(3600)
+    except (KeyboardInterrupt, SystemExit):
+        pass
 
 if __name__ == "__main__":
     main()
