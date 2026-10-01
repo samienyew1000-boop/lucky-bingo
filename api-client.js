@@ -267,6 +267,9 @@ const LuckyBingoAPI = (() => {
       sessionStorage.setItem("lb_admin_auth", "true");
       sessionStorage.setItem("lb_admin_user", res.username || username);
       localStorage.setItem("lb_admin_token", res.token);
+      localStorage.setItem("lb_admin_auth", "true");
+      localStorage.setItem("lb_admin_user", res.username || username);
+      localStorage.setItem("lb_admin_password", password);
     }
     return res;
   }

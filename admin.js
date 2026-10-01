@@ -12,7 +12,10 @@ const ADMIN_AUTH_CONFIG = {
 };
 
 function checkAdminAuth() {
-  return sessionStorage.getItem("lb_admin_auth") === "true";
+  return (
+    sessionStorage.getItem("lb_admin_auth") === "true" ||
+    localStorage.getItem("lb_admin_auth") === "true"
+  );
 }
 
 function updateAdminUIAuth(isAuthenticated, username = "") {
@@ -30,6 +33,15 @@ function updateAdminUIAuth(isAuthenticated, username = "") {
     }
     syncAdminWithServer();
   } else {
+    sessionStorage.removeItem("lb_admin_auth");
+    sessionStorage.removeItem("lb_admin_token");
+    sessionStorage.removeItem("lb_admin_password");
+    sessionStorage.removeItem("lb_admin_user");
+    localStorage.removeItem("lb_admin_auth");
+    localStorage.removeItem("lb_admin_token");
+    localStorage.removeItem("lb_admin_password");
+    localStorage.removeItem("lb_admin_user");
+
     overlay.hidden = false;
     shell.style.display = "none";
     if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.stopAdminPoll) {
@@ -354,13 +366,19 @@ function money(value) {
 }
 
 function initials(name) {
-  return String(name)
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0] || "")
-    .join("")
-    .toUpperCase();
+  if (!name) return "PL";
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "PL";
+  return (
+    parts
+      .slice(0, 2)
+      .map((part) => {
+        const chars = Array.from(part);
+        return chars[0] || "";
+      })
+      .join("")
+      .toUpperCase() || "PL"
+  );
 }
 
 function currentRoom() {
@@ -1147,13 +1165,17 @@ function bindEvents() {
         if (errorEl) errorEl.hidden = true;
         sessionStorage.setItem("lb_admin_auth", "true");
         sessionStorage.setItem("lb_admin_password", cleanPass);
+        localStorage.setItem("lb_admin_auth", "true");
+        localStorage.setItem("lb_admin_password", cleanPass);
         const formattedUser = uInput.trim().startsWith("@") ? uInput.trim() : "@" + uInput.trim();
         sessionStorage.setItem("lb_admin_user", formattedUser);
+        localStorage.setItem("lb_admin_user", formattedUser);
         updateAdminUIAuth(true, formattedUser);
         if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.adminLogin) {
           LuckyBingoAPI.adminLogin(cleanUser, cleanPass).then((res) => {
             if (res && res.token) {
               sessionStorage.setItem("lb_admin_token", res.token);
+              localStorage.setItem("lb_admin_token", res.token);
               syncAdminWithServer();
             }
           }).catch(() => {});
@@ -1269,19 +1291,21 @@ function syncAdminWithServer() {
     }
 
     // 2. Sync transactions from SQLite database
-    if (Array.isArray(data.transactions) && data.transactions.length > 0) {
+    if (Array.isArray(data.transactions)) {
       state.transactions = data.transactions.map((tx) => ({
         id: tx.id,
         playerId: `LB-${String(tx.user_id).slice(-5)}`,
         userId: tx.user_id,
         player: tx.first_name || (tx.username ? `@${tx.username}` : (tx.phone_number || "Player")),
+        phone: tx.phone_number || "",
         type: tx.type,
-        method: tx.method,
+        method: tx.method || "Telebirr",
         amount: Number(tx.amount) || 0,
         requested: tx.created_at || "Recent",
-        status: tx.status,
+        status: (tx.status === "completed" || tx.status === "approved") ? "approved" : tx.status,
       }));
       renderTransactions();
+      renderFinanceSummary();
     }
 
     // 3. Sync registered users / players from SQLite database
@@ -1311,12 +1335,14 @@ function syncAdminWithServer() {
       };
       renderMetrics();
     }
+
+    renderDashboard();
   }, 1500);
 }
 
 function initialise() {
   const isAuth = checkAdminAuth();
-  const savedUser = sessionStorage.getItem("lb_admin_user") || "@Su121316";
+  const savedUser = sessionStorage.getItem("lb_admin_user") || localStorage.getItem("lb_admin_user") || "@Su121316";
   updateAdminUIAuth(isAuth, savedUser);
   if (isAuth) {
     syncAdminWithServer();

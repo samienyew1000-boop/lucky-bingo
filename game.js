@@ -161,10 +161,34 @@ async function syncProfileWithServer() {
     if (!user || user.error) return;
 
     if (typeof user.balance === "number") {
+      const prevBal = balance;
       balance = Number(user.balance);
-      // Cache only the last server value for paint-time fallback. It is never
-      // used as an authority for charging, refunds, or winnings.
       localStorage.setItem(BALANCE_KEY, String(balance));
+      renderBalance();
+      if (prevBal !== balance && prevBal > 0) {
+        const diff = balance - prevBal;
+        if (diff > 0) {
+          toast(`BALANCE CREDITED +${fmt(diff)} ETB`, "win");
+        }
+      }
+    }
+
+    if (Array.isArray(user.transactions)) {
+      window._serverTransactions = user.transactions.map((tx) => ({
+        id: tx.id,
+        playerId: `LB-${String(tx.user_id || user.id).slice(-5)}`,
+        player: user.first_name || user.username || PLAYER_NAME,
+        type: tx.type,
+        method: tx.method || "Telebirr",
+        amount: Number(tx.amount) || 0,
+        requested: tx.created_at || "Recent",
+        status: (tx.status === "completed" || tx.status === "approved") ? "completed" : tx.status,
+        details: tx.phone_number ? `Ref/Phone: ${tx.phone_number}` : "",
+      }));
+      const historyActive = document.querySelector('[data-mobile-nav="history"]')?.classList.contains("is-active");
+      if (historyActive) {
+        renderMobilePanelContent("history");
+      }
     }
 
     if (user.active_room) {
@@ -207,6 +231,7 @@ async function syncProfileWithServer() {
   }
 }
 
+let _lobbySyncTick = 0;
 function startServerLobbySync() {
   if (typeof LuckyBingoAPI === "undefined") return;
   LuckyBingoAPI.startLobbyPoll((data) => {
@@ -224,6 +249,10 @@ function startServerLobbySync() {
       };
     }
     if (views.lobby && views.lobby.classList.contains("is-on")) renderRooms();
+    _lobbySyncTick++;
+    if (_lobbySyncTick % 2 === 0) {
+      syncProfileWithServer();
+    }
   }, 1500);
 }
 
@@ -835,6 +864,9 @@ function recordPlayerTransaction(data) {
 }
 
 function getStoredTransactions() {
+  if (Array.isArray(window._serverTransactions) && window._serverTransactions.length > 0) {
+    return window._serverTransactions;
+  }
   try {
     const saved = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "{}");
     const transactions = Array.isArray(saved.transactions) ? saved.transactions : [];
@@ -2915,6 +2947,12 @@ function handleDepositSubmit(event) {
 
   if (typeof LuckyBingoAPI !== "undefined") {
     LuckyBingoAPI.deposit(amount, method, reference, "").then((res) => {
+      if (res && res.id) {
+        showWalletFeedback(
+          "deposit",
+          `Deposit request ${res.id} submitted! Waiting for admin approval.`
+        );
+      }
       syncProfileWithServer();
     }).catch(() => {});
   }
@@ -2959,6 +2997,12 @@ function handleWithdrawSubmit(event) {
 
   if (typeof LuckyBingoAPI !== "undefined") {
     LuckyBingoAPI.withdraw(amount, method, phone).then((res) => {
+      if (res && res.id) {
+        showWalletFeedback(
+          "withdraw",
+          `Withdrawal request ${res.id} for ${fmt(amount)} ETB submitted! Waiting for admin approval.`
+        );
+      }
       syncProfileWithServer();
     }).catch(() => {});
   }

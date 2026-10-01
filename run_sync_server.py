@@ -38,7 +38,6 @@ def update_api_config(tunnel_url: str):
   window.LUCKY_BINGO_API_URL =
     window.LUCKY_BINGO_API_URL ||
     apiParam ||
-    localStorage.getItem("lb_api_url") ||
     DEFAULT_BACKEND_URL;
 }})();
 '''

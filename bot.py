@@ -1769,9 +1769,9 @@ def get_admin_overview() -> Dict[str, Any]:
         ver_users = cursor.fetchone()['ver_users']
         cursor.execute('SELECT COUNT(*) as pending_tx FROM transactions WHERE status = "pending"')
         pend_tx = cursor.fetchone()['pending_tx']
-        cursor.execute('SELECT COALESCE(SUM(amount), 0) as tot_dep FROM transactions WHERE type = "deposit" AND status = "completed"')
+        cursor.execute('SELECT COALESCE(SUM(amount), 0) as tot_dep FROM transactions WHERE type = "deposit" AND status IN ("completed", "approved")')
         tot_dep = cursor.fetchone()['tot_dep']
-        cursor.execute('SELECT COALESCE(SUM(amount), 0) as tot_wth FROM transactions WHERE type = "withdraw" AND status = "completed"')
+        cursor.execute('SELECT COALESCE(SUM(amount), 0) as tot_wth FROM transactions WHERE type = "withdraw" AND status IN ("completed", "approved")')
         tot_wth = cursor.fetchone()['tot_wth']
         
         total_live_players = sum(r.get('player_count', 0) for r in rooms)
@@ -1807,10 +1807,10 @@ def update_admin_transaction(tx_id: str, action: str) -> Dict[str, Any]:
         if action == 'approve':
             if tx_type == 'deposit':
                 cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (amount, user_id))
-            cursor.execute('UPDATE transactions SET status = ? WHERE id = ?', ('completed', tx_id))
+            cursor.execute('UPDATE transactions SET status = ? WHERE id = ?', ('approved', tx_id))
             conn.commit()
             export_admin_players()
-            return {'ok': True, 'status': 'completed', 'id': tx_id}
+            return {'ok': True, 'status': 'approved', 'id': tx_id}
         elif action == 'reject':
             if tx_type == 'withdraw':
                 cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (amount, user_id))
@@ -1979,7 +1979,16 @@ def start_background_web_server() -> None:
                             (user.get('id', 0),),
                         )
                         active = cursor.fetchone()
+                        cursor.execute(
+                            '''SELECT id, user_id, type, method, amount, phone_number, status, created_at
+                               FROM transactions
+                               WHERE user_id = ?
+                               ORDER BY created_at DESC LIMIT 30''',
+                            (user.get('id', 0),)
+                        )
+                        txs = [dict(r) for r in cursor.fetchall()]
                     response = dict(db_user)
+                    response['transactions'] = txs
                     response['active_room'] = dict(active) if active else None
                     if response['active_room']:
                         try:
@@ -1987,6 +1996,10 @@ def start_background_web_server() -> None:
                         except (TypeError, ValueError):
                             response['active_room']['card_ids'] = []
                     return self.send_json(response)
+                    
+                # 4. Health check endpoint
+                elif path in ('/api/health', '/health'):
+                    return self.send_json({'ok': True, 'status': 'healthy'})
                     
                 else:
                     return self.send_json({'error': 'Not found'}, status=404)
