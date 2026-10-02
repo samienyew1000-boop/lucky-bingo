@@ -11,7 +11,7 @@
   }
 
   // Pre-configured cloud or tunnel backend URL
-  const DEFAULT_BACKEND_URL = "https://living-destinations-concentrations-symposium.trycloudflare.com";
+  const DEFAULT_BACKEND_URL = "https://instrumental-retailer-resist-fit.trycloudflare.com";
 
   if (apiParam) {
     window.LUCKY_BINGO_API_URL = apiParam;
