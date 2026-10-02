@@ -24,7 +24,7 @@ const MIN_WALLET_AMOUNT = 50;
 const PLAYER_ID = "LB-PLAYER";
 const PLAYER_NAME = "Lucky Bingo Player";
 const PAYMENT_METHODS = Object.freeze({
-  Telebirr: { accountName: "Lucky Bingo", accountNumber: "0911 000 000" },
+  Telebirr: { accountName: "Lucky Bingo", accountNumber: "0999909474" },
   "CBE Birr": { accountName: "Lucky Bingo CBE Birr", accountNumber: "1000 000 000" },
   "M-Pesa": { accountName: "Lucky Bingo M-Pesa", accountNumber: "0700 000 000" },
 });
@@ -2745,7 +2745,7 @@ function getDepositPaymentAccount(method) {
     if (method === "Telebirr" && adminSettings.depositTelebirrPhone) {
       return {
         accountName: adminSettings.depositTelebirrName || "Lucky Bingo",
-        accountNumber: adminSettings.depositTelebirrPhone || "0911 000 000",
+        accountNumber: adminSettings.depositTelebirrPhone || "0999909474",
       };
     }
     if (method === "CBE Birr" && adminSettings.depositCbeBirrPhone) {

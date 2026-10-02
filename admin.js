@@ -127,7 +127,7 @@ const DEFAULT_SETTINGS = {
   transactionAlerts: true,
   largeWithdrawal: true,
   timeout: "60",
-  depositTelebirrPhone: "0911 000 000",
+  depositTelebirrPhone: "0999909474",
   depositTelebirrName: "Lucky Bingo",
   depositCbeBirrPhone: "1000 000 000",
   depositCbeBirrName: "Lucky Bingo CBE Birr",
@@ -280,7 +280,7 @@ function saveSettings() {
   window.LUCKY_BINGO_PAYMENT_METHODS = {
     Telebirr: {
       accountName: settings.depositTelebirrName || "Lucky Bingo",
-      accountNumber: settings.depositTelebirrPhone || "0911 000 000",
+      accountNumber: settings.depositTelebirrPhone || "0999909474",
     },
     "CBE Birr": {
       accountName: settings.depositCbeBirrName || "Lucky Bingo CBE Birr",

@@ -981,7 +981,7 @@ PAYMENT_METHODS: Dict[str, Dict[str, Any]] = {
     "Telebirr": {
         "name": "Telebirr",
         "account_name": "Lucky Bingo",
-        "account_number": "0911 000 000",
+        "account_number": "0999909474",
         "min_amount": 50,
         "bonus": "ከ 100 ETB በላይ 20% ተጨማሪ ቦነስ",
     },

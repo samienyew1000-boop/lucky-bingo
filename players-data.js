@@ -10,7 +10,7 @@ window.LUCKY_BINGO_PAYMENT_METHODS = {
   "Telebirr": {
     "name": "Telebirr",
     "account_name": "Lucky Bingo",
-    "account_number": "0911 000 000",
+    "account_number": "0999909474",
     "min_amount": 50,
     "bonus": "ከ 100 ETB በላይ 20% ተጨማሪ ቦነስ"
   },
@@ -30,6 +30,97 @@ window.LUCKY_BINGO_PAYMENT_METHODS = {
   }
 };
 window.LUCKY_BINGO_PLAYERS = [
+  {
+    "id": "TG-9661102935",
+    "name": "Lucky Player",
+    "username": "@Player_2935",
+    "email": "Player_2935@t.me",
+    "phone": "N/A",
+    "balance": 0.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 9661102935)"
+  },
+  {
+    "id": "TG-9384895283",
+    "name": "Lucky Player",
+    "username": "@Player_5283",
+    "email": "Player_5283@t.me",
+    "phone": "N/A",
+    "balance": 0.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 9384895283)"
+  },
+  {
+    "id": "TG-9026975452",
+    "name": "Lucky Player",
+    "username": "@Player_5452",
+    "email": "Player_5452@t.me",
+    "phone": "N/A",
+    "balance": 0.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 9026975452)"
+  },
+  {
+    "id": "TG-1828723906",
+    "name": "@Tesfahun",
+    "username": "ID: 1828723906",
+    "email": "1828723906@t.me",
+    "phone": "N/A",
+    "balance": 0.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 1828723906)"
+  },
+  {
+    "id": "TG-8038533026",
+    "name": "Lucky Player",
+    "username": "@Player_3026",
+    "email": "Player_3026@t.me",
+    "phone": "N/A",
+    "balance": 0.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 8038533026)"
+  },
+  {
+    "id": "TG-8408414885",
+    "name": "Lucky Player",
+    "username": "@Player_4885",
+    "email": "Player_4885@t.me",
+    "phone": "N/A",
+    "balance": 0.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 8408414885)"
+  },
+  {
+    "id": "TG-8749189384",
+    "name": "Lucky Player",
+    "username": "@Player_9384",
+    "email": "Player_9384@t.me",
+    "phone": "N/A",
+    "balance": 0.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 8749189384)"
+  },
   {
     "id": "TG-551046010",
     "name": "@Hiwisha",
@@ -231,7 +322,7 @@ window.LUCKY_BINGO_PLAYERS = [
     "username": "@Anj_mark1",
     "email": "Anj_mark1@t.me",
     "phone": "N/A",
-    "balance": 0.0,
+    "balance": 97.0,
     "games": 0,
     "lastActive": "Just now",
     "status": "active",
