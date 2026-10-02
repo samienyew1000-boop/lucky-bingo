@@ -48,6 +48,7 @@ from telegram import (
     WebAppInfo,
     BotCommand,
     MenuButtonCommands,
+    MenuButtonWebApp,
 )
 from telegram.ext import (
     Application,
@@ -1827,8 +1828,13 @@ async def post_init(application: Application) -> None:
     ]
     try:
         await application.bot.set_my_commands(commands)
-        await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
-        logger.info("Bot commands menu registered successfully.")
+        try:
+            await application.bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(text="Play Games 🎮", web_app=WebAppInfo(url=get_game_web_url()))
+            )
+        except Exception:
+            await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        logger.info("Bot commands menu and Play Games WebApp button registered successfully.")
     except Exception as e:
         logger.warning("Could not set bot commands or menu button immediately: %s", e)
 
