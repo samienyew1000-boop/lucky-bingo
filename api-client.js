@@ -137,6 +137,25 @@ const LuckyBingoAPI = (() => {
     } catch (e) {
       console.warn("[API] Request failed:", path, e);
       _baseUrl = "";
+
+      // Self-healing: if fetch failed, check if Vercel has an updated tunnel URL and retry
+      if (!options._retried) {
+        try {
+          const configRes = await fetch("https://lucky-bingo-iota.vercel.app/app-config.js?_t=" + Date.now(), { cache: "no-store" });
+          if (configRes.ok) {
+            const configText = await configRes.text();
+            const match = configText.match(/DEFAULT_BACKEND_URL\s*=\s*["']([^"']+)["']/);
+            if (match && match[1]) {
+              const freshUrl = match[1].replace(/\/+$/, "");
+              _baseUrl = freshUrl;
+              window.LUCKY_BINGO_API_URL = freshUrl;
+              try { localStorage.setItem("lb_api_url", freshUrl); } catch (_) {}
+              return await apiRequest(path, { ...options, _retried: true });
+            }
+          }
+        } catch (_) {}
+      }
+
       return {
         error: "Network error. Please check your connection.",
         isNetworkError: true,
