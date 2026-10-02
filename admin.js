@@ -1274,8 +1274,36 @@ function bindEvents() {
 
 function syncAdminWithServer() {
   if (typeof LuckyBingoAPI === "undefined" || !checkAdminAuth()) return;
+
+  // Auto server-login when auth flag is set but server token is missing (e.g. different device/fresh session)
+  const hasToken = sessionStorage.getItem("lb_admin_token") || localStorage.getItem("lb_admin_token");
+  if (!hasToken && LuckyBingoAPI.adminLogin) {
+    const savedPass = sessionStorage.getItem("lb_admin_password") || localStorage.getItem("lb_admin_password") || ADMIN_AUTH_CONFIG.password;
+    const savedUser = (sessionStorage.getItem("lb_admin_user") || localStorage.getItem("lb_admin_user") || "su121316").replace(/^@/, "").toLowerCase();
+    LuckyBingoAPI.adminLogin(savedUser, savedPass).then((res) => {
+      if (res && res.token) {
+        sessionStorage.setItem("lb_admin_token", res.token);
+        localStorage.setItem("lb_admin_token", res.token);
+      }
+      // Start polling after token is obtained (or even if login fails — will retry next cycle)
+      _startAdminDataPoll();
+    }).catch(() => { _startAdminDataPoll(); });
+    return;
+  }
+
+  _startAdminDataPoll();
+}
+
+function _startAdminDataPoll() {
   LuckyBingoAPI.startAdminPoll((data) => {
-    if (!data || data.error) return;
+    if (!data || data.error) {
+      // If we got an auth error, clear stale token so next sync will re-login
+      if (data && data.error && String(data.error).toLowerCase().includes("unauthorized")) {
+        sessionStorage.removeItem("lb_admin_token");
+        localStorage.removeItem("lb_admin_token");
+      }
+      return;
+    }
 
     // 1. Sync rooms from authoritative server
     if (Array.isArray(data.rooms) && data.rooms.length > 0) {
