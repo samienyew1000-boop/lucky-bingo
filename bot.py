@@ -686,8 +686,18 @@ class GameEngine:
         self._schedule_next_call(room_id)
     
     def _schedule_next_call(self, room_id):
-        """Schedule the next number call."""
-        timer = threading.Timer(1.6, self._call_next_number, args=[room_id])
+        """Schedule the next number call with comfortable 3.6s pacing (1.6s + 2s)."""
+        interval = 3.6
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM game_settings WHERE key = 'call_interval'")
+                row = cursor.fetchone()
+                if row and row['value']:
+                    interval = float(row['value'])
+        except Exception:
+            pass
+        timer = threading.Timer(interval, self._call_next_number, args=[room_id])
         timer.daemon = True
         timer.start()
         self._call_timers[room_id] = timer
