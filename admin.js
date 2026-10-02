@@ -1189,8 +1189,35 @@ function bindEvents() {
     showToast("Activity list cleared.");
   });
   $("refresh-transactions").addEventListener("click", () => {
-    renderTransactions();
-    showToast("Transaction queue refreshed.");
+    showToast("Fetching latest requests from server...");
+    if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.getAdminOverview) {
+      LuckyBingoAPI.getAdminOverview().then((data) => {
+        if (data && Array.isArray(data.transactions)) {
+          state.transactions = data.transactions.map((tx) => ({
+            id: tx.id,
+            playerId: `LB-${String(tx.user_id).slice(-5)}`,
+            userId: tx.user_id,
+            player: tx.first_name || (tx.username ? `@${tx.username}` : (tx.phone_number || "Player")),
+            phone: tx.phone_number || "",
+            type: tx.type,
+            method: tx.method || "Telebirr",
+            amount: Number(tx.amount) || 0,
+            requested: tx.created_at || "Recent",
+            status: (tx.status === "completed" || tx.status === "approved") ? "approved" : tx.status,
+          }));
+          renderTransactions();
+          renderFinanceSummary();
+          showToast(`Synced ${state.transactions.length} transactions from server.`);
+        } else {
+          showToast("Server sync completed.");
+        }
+      }).catch(() => {
+        showToast("Could not reach server. Retrying in background...", "warning");
+      });
+    } else {
+      renderTransactions();
+      showToast("Transaction queue refreshed.");
+    }
   });
   $("export-transactions").addEventListener("click", exportTransactions);
   $("export-players").addEventListener("click", exportPlayers);
@@ -1254,13 +1281,23 @@ function syncAdminWithServer() {
 
 function _startAdminDataPoll() {
   LuckyBingoAPI.startAdminPoll((data) => {
+    const statusEl = $("admin-server-status");
     if (!data || data.error) {
-      // If we got an auth error, clear stale token so next sync will re-login
+      if (statusEl) {
+        statusEl.textContent = "🟡 Reconnecting...";
+        statusEl.style.color = "#d97706";
+      }
       if (data && data.error && String(data.error).toLowerCase().includes("unauthorized")) {
         sessionStorage.removeItem("lb_admin_token");
         localStorage.removeItem("lb_admin_token");
       }
       return;
+    }
+
+    if (statusEl) {
+      const txCount = Array.isArray(data.transactions) ? data.transactions.length : state.transactions.length;
+      statusEl.textContent = `🟢 Live Server (${txCount} txs)`;
+      statusEl.style.color = "#16a34a";
     }
 
     // 1. Sync rooms from authoritative server
@@ -1386,6 +1423,14 @@ function initialise() {
     const updated = $("last-updated");
     if (updated) updated.textContent = "Updated just now";
   }, 60000);
+
+  // When returning to admin tab from another app, immediately re-sync with server!
+  window.addEventListener("focus", () => {
+    if (checkAdminAuth()) syncAdminWithServer();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && checkAdminAuth()) syncAdminWithServer();
+  });
 }
 
 initialise();
