@@ -4479,20 +4479,17 @@ body.is-lobby-active #view-lobby {
   flex: 0 0 auto !important;
 }
 
-.lb-bingo-btn,
-.lb-bingo-btn:disabled,
-.lb-bingo-btn:enabled {
+.lb-bingo-btn {
   display: flex !important;
   width: 100% !important;
-  height: 40px !important;
-  min-height: 40px !important;
-  max-height: 40px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  max-height: 42px !important;
   align-items: center !important;
   justify-content: center !important;
   gap: 8px !important;
   border: none !important;
   border-radius: 12px !important;
-  background: #5b5df4 !important;
   background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
   color: #ffffff !important;
   font-family: Arial, -apple-system, BlinkMacSystemFont, sans-serif !important;
@@ -4500,14 +4497,32 @@ body.is-lobby-active #view-lobby {
   font-weight: 900 !important;
   letter-spacing: 0.6px !important;
   box-shadow: 0 4px 16px rgba(99, 102, 241, 0.45) !important;
-  cursor: pointer !important;
-  filter: none !important;
+  transition: opacity 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease !important;
+}
+
+.lb-bingo-btn:disabled {
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  filter: grayscale(25%) !important;
+}
+
+.lb-bingo-btn:enabled,
+.lb-bingo-btn.is-ready-to-claim {
   opacity: 1 !important;
-  transition: opacity 0.15s ease, transform 0.1s ease !important;
+  cursor: pointer !important;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.7), 0 4px 16px rgba(16, 185, 129, 0.5) !important;
+  animation: lb-bingo-ready-pulse 1s infinite alternate !important;
+}
+
+@keyframes lb-bingo-ready-pulse {
+  from { transform: scale(1); box-shadow: 0 0 14px rgba(16, 185, 129, 0.6); }
+  to { transform: scale(1.03); box-shadow: 0 0 26px rgba(16, 185, 129, 0.95); }
 }
 
 .lb-bingo-btn:active {
-  transform: scale(0.98) !important;
+  transform: scale(0.97) !important;
 }
 
 .lb-game-actions .lb-leave,

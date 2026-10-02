@@ -513,7 +513,7 @@ class GameEngine:
             cursor.execute('SELECT number, call_index FROM game_calls WHERE room_id = ? AND round_id = ? ORDER BY call_index', (room_id, round_id))
             calls = [row['number'] for row in cursor.fetchall()]
 
-            bot_players = self._bot_players.get(room_id, [])
+            bot_players = []
             round_result = self.get_round_result(room_id)
 
             # Calculate derash based on setting commission %
@@ -521,6 +521,7 @@ class GameEngine:
             total_cards = sum(len(json.loads(p.get('card_ids', '[]') or '[]')) for p in players)
             total_pot = max(1, total_cards) * int(room_id)
             derash = max(float(room_id), round(total_pot * (1.0 - comm_pct / 100.0), 2))
+            winning_pattern = str(get_game_setting('winning_pattern', '1'))
 
             return {
                 'room_id': room_id,
@@ -529,12 +530,14 @@ class GameEngine:
                 'round_id': round_id,
                 'countdown_ends_at': room['countdown_ends_at'] or 0,
                 'players': players,
-                'bot_players': bot_players,
+                'bot_players': [],
                 'calls': calls,
                 'last_result': round_result,
-                'player_count': len(players) + len(bot_players),
+                'player_count': len(players),
+                'total_cards': total_cards,
                 'derash': derash,
                 'commission_pct': comm_pct,
+                'winning_pattern': winning_pattern,
             }
     
     def join_room(self, room_id, user_id, card_ids):
@@ -633,11 +636,7 @@ class GameEngine:
             real_count = cursor.fetchone()['cnt']
             bot_count = len(self._bot_players.get(room_id, []))
             
-            if real_count >= 1:  # With at least 1 real player, add bots and start countdown
-                # Add bot players
-                if bot_count == 0:
-                    self._add_bot_players(room_id)
-                
+            if real_count >= 1:  # When at least 1 real player has joined with cards, start 60s countdown
                 countdown_secs = 60  # Fixed 60-second (1-minute) countdown
                 ends_at = time.time() + countdown_secs
                 now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
@@ -654,17 +653,8 @@ class GameEngine:
                 _do_check(new_conn)
     
     def _add_bot_players(self, room_id):
-        """Add 2-5 simulated bot players."""
-        bot_names = ['Abebe', 'Kebede', 'Almaz', 'Tigist', 'Dawit', 'Meron', 'Hana', 'Yonas', 'Sara', 'Biruk']
-        count = random.randint(2, 5)
-        bots = []
-        for name in random.sample(bot_names, min(count, len(bot_names))):
-            bots.append({
-                'name': name,
-                'card_ids': [random.randint(1, 1000)],
-                'is_bot': True
-            })
-        self._bot_players[room_id] = bots
+        """No-op: Only real players are allowed in games."""
+        self._bot_players[room_id] = []
     
     def _schedule_game_start(self, room_id, delay):
         """Schedule the live game to start after countdown."""
@@ -958,8 +948,6 @@ class GameEngine:
                 room = cursor.fetchone()
                 if not room or room['status'] not in ('open', 'countdown'):
                     return {'error': 'Room cannot be started (must be open or in countdown)'}
-                if not self._bot_players.get(str(room_id)):
-                    self._add_bot_players(str(room_id))
                 ends_at = time.time() + countdown_secs
                 now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
                 cursor.execute('UPDATE game_rooms SET status = ?, countdown_ends_at = ?, updated_at = ? WHERE id = ?', ('countdown', ends_at, now, str(room_id)))
