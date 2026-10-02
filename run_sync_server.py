@@ -69,16 +69,15 @@ def main():
             bufsize=1,
         )
         start_time = time.time()
-        while time.time() - start_time < 15:
+        while time.time() - start_time < 25:
             line = tunnel_proc.stderr.readline()
             if not line:
                 time.sleep(0.2)
                 continue
-            if "trycloudflare.com" in line:
-                m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
-                if m:
-                    tunnel_url = m.group(0)
-                    break
+            m = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
+            if m and "api.trycloudflare.com" not in m.group(0):
+                tunnel_url = m.group(0)
+                break
         
         if tunnel_url:
             print(f"[✓] Tunnel active: {tunnel_url}")

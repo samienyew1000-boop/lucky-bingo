@@ -73,9 +73,39 @@ def load_dotenv(filepath=".env"):
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8903701497:AAEMVWcaDSxdz7aQLVerCn4gPiEOOoGFp4Q")
-WEB_APP_URL = os.getenv("WEB_APP_URL", "https://lucky-bingo.ethiodeploy.com/")
+raw_web_url = os.getenv("WEB_APP_URL", "https://lucky-bingo-iota.vercel.app/").strip()
+if not raw_web_url or "ethiodeploy" in raw_web_url:
+    raw_web_url = "https://lucky-bingo-iota.vercel.app/"
+WEB_APP_URL = raw_web_url if raw_web_url.endswith("/") else f"{raw_web_url}/"
 GROUP_URL = os.getenv("GROUP_URL", "https://t.me/your_telegram_channel")
 CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/su121316")
+
+def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bool = False, user_id: int = 0) -> str:
+    """Builds authoritative Vercel WebApp URL including tunnel API and role params."""
+    base = WEB_APP_URL.rstrip("/")
+    if subpath:
+        base = f"{base}/{subpath.lstrip('/')}"
+
+    fragment = ""
+    if extra_query and extra_query.startswith("#"):
+        fragment = extra_query
+        extra_query = ""
+
+    tunnel_url = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "")
+    params = []
+    if tunnel_url and "api=" not in base:
+        params.append(f"api={urllib.parse.quote(tunnel_url, safe='')}")
+    if is_admin_user:
+        params.append(f"role=admin&admin=1&u={user_id}")
+    if extra_query:
+        params.append(extra_query.lstrip("?&"))
+
+    if params:
+        sep = "&" if "?" in base else "?"
+        base = f"{base}{sep}{'&'.join(params)}"
+    if fragment:
+        base = f"{base}{fragment}"
+    return base
 
 # Authorized Administrators (comma-separated in .env or set here)
 raw_usernames = os.getenv("ADMIN_USERNAMES", "samTesfa19,su121316")
@@ -1003,17 +1033,7 @@ def get_payment_methods() -> Dict[str, Dict[str, Any]]:
 # ==============================================================================
 def get_main_keyboard(is_admin_user: bool = False, user_id: int = 0) -> InlineKeyboardMarkup:
     """Exact 6-row main inline keyboard, plus Admin Controls row if authorized."""
-    tunnel_url = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "")
-    base = WEB_APP_URL
-    if tunnel_url and "api=" not in base:
-        sep = "&" if "?" in base else "?"
-        base = f"{base}{sep}api={urllib.parse.quote(tunnel_url, safe='')}"
-
-    if is_admin_user:
-        separator = "&" if "?" in base else "?"
-        web_app_url = f"{base}{separator}role=admin&admin=1&u={user_id}"
-    else:
-        web_app_url = base
+    web_app_url = get_game_web_url(is_admin_user=is_admin_user, user_id=user_id)
 
     keyboard = [
         # Row 1: Full-width Web App button
@@ -1295,7 +1315,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             InlineKeyboardButton(text=f"💳 የግብይት ጥያቄዎች ({pending_tx})", callback_data="admin_pending_tx"),
         ],
         [
-            InlineKeyboardButton(text="🌐 Admin Panel (Web Console)", web_app=WebAppInfo(url=f"{WEB_APP_URL}admin.html")),
+            InlineKeyboardButton(text="🌐 Admin Panel (Web Console)", web_app=WebAppInfo(url=get_game_web_url("admin.html", is_admin_user=True, user_id=user.id))),
         ],
         [
             InlineKeyboardButton(text="« ወደ ዋናው ማውጫ (Back)", callback_data="back_to_menu"),
@@ -1404,7 +1424,7 @@ async def balance_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             InlineKeyboardButton(text="🏧 አውጣ (Withdraw)", callback_data="withdraw"),
         ],
         [
-            InlineKeyboardButton(text="🎮 ጨዋታ ጀምር (Play Games)", web_app=WebAppInfo(url=WEB_APP_URL))
+            InlineKeyboardButton(text="🎮 ጨዋታ ጀምር (Play Games)", web_app=WebAppInfo(url=get_game_web_url()))
         ],
         [
             InlineKeyboardButton(text="« ወደ ዋናው ማውጫ (Back)", callback_data="back_to_menu")
@@ -1447,7 +1467,7 @@ async def transactions_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     keyboard = [
         [
-            InlineKeyboardButton(text="🎮 በጨዋታው ውስጥ ይመልከቱ (View in Game)", web_app=WebAppInfo(url=WEB_APP_URL))
+            InlineKeyboardButton(text="🎮 በጨዋታው ውስጥ ይመልከቱ (View in Game)", web_app=WebAppInfo(url=get_game_web_url()))
         ],
         [
             InlineKeyboardButton(text="« ወደ ዋናው ማውጫ (Back)", callback_data="back_to_menu")
@@ -1468,7 +1488,7 @@ async def transfer_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "የተቀባዩን የተጠቃሚ ስም (Username) ወይም የተጫዋች ID በጨዋታው ውስጥ በማስገባት ወዲያውኑ ያስተላልፉ!"
     )
     keyboard = [
-        [InlineKeyboardButton(text="🎮 በጨዋታው ውስጥ ያስተላልፉ", web_app=WebAppInfo(url=WEB_APP_URL))],
+        [InlineKeyboardButton(text="🎮 በጨዋታው ውስጥ ያስተላልፉ", web_app=WebAppInfo(url=get_game_web_url()))],
         [InlineKeyboardButton(text="« ወደ ዋናው ማውጫ (Back)", callback_data="back_to_menu")],
     ]
     if update.callback_query:
@@ -1495,7 +1515,7 @@ async def register_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"ጨዋታዎችን ለመጫወት ከታች ያለውን ቁልፍ ይጫኑ!"
     )
     keyboard = [
-        [InlineKeyboardButton(text="🎮 Play Games (Start)", web_app=WebAppInfo(url=WEB_APP_URL))],
+        [InlineKeyboardButton(text="🎮 Play Games (Start)", web_app=WebAppInfo(url=get_game_web_url()))],
         [InlineKeyboardButton(text="« ወደ ዋናው ማውጫ (Back)", callback_data="back_to_menu")],
     ]
     if update.effective_message:
@@ -1698,7 +1718,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"ገንዘቡን ከላኩ በኋላ በጨዋታው ውስጥ የግብይት ቁጥርዎን (Tx Reference) በማስገባት በቀጥታ ማስገባት ይችላሉ።"
         )
         keyboard = [
-            [InlineKeyboardButton(text="🎮 በጨዋታው ውስጥ አስገባ (Open Game)", web_app=WebAppInfo(url=f"{WEB_APP_URL}#deposit"))],
+            [InlineKeyboardButton(text="🎮 በጨዋታው ውስጥ አስገባ (Open Game)", web_app=WebAppInfo(url=get_game_web_url(extra_query="#deposit")))],
             [InlineKeyboardButton(text="« የማስገቢያ መንገዶች (Back)", callback_data="deposit")],
         ]
         await query.message.reply_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -1723,7 +1743,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"ገንዘብ ለማውጣት በጨዋታው ውስጥ ማውጣት የሚፈልጉትን መጠን ያስገቡ። ገንዘቡ በቀጥታ ወደ `{phone}` ይላካል።"
         )
         keyboard = [
-            [InlineKeyboardButton(text="🎮 በጨዋታው ውስጥ አውጣ (Withdraw in Game)", web_app=WebAppInfo(url=f"{WEB_APP_URL}#deposit"))],
+            [InlineKeyboardButton(text="🎮 በጨዋታው ውስጥ አውጣ (Withdraw in Game)", web_app=WebAppInfo(url=get_game_web_url(extra_query="#deposit")))],
             [InlineKeyboardButton(text="« የመውጫ መንገዶች (Back)", callback_data="withdraw")],
         ]
         await query.message.reply_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -1753,7 +1773,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"• *የመለያ ሁኔታ:* {status_label}"
         )
         keyboard = [
-            [InlineKeyboardButton(text="🎮 Play Games 🎮", web_app=WebAppInfo(url=WEB_APP_URL))],
+            [InlineKeyboardButton(text="🎮 Play Games 🎮", web_app=WebAppInfo(url=get_game_web_url()))],
             [InlineKeyboardButton(text="« ወደ ዋናው ማውጫ (Back)", callback_data="back_to_menu")],
         ]
         await query.message.reply_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
