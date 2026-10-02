@@ -11,7 +11,7 @@
   }
 
   // Pre-configured cloud or tunnel backend URL
-  const DEFAULT_BACKEND_URL = "https://experience-develop-jungle-hometown.trycloudflare.com";
+  const DEFAULT_BACKEND_URL = "https://gif-kim-mention-hiring.trycloudflare.com";
 
   window.LUCKY_BINGO_API_URL =
     window.LUCKY_BINGO_API_URL ||
