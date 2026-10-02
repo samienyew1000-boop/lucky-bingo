@@ -18,6 +18,17 @@ if sys.platform == "win32":
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+def push_tunnel_config_to_github():
+    git_exe = r"C:\Users\HP\AppData\Local\GitHubDesktop\app-3.6.5\resources\app\git\cmd\git.exe"
+    if os.path.exists(git_exe):
+        try:
+            subprocess.run([git_exe, "add", "app-config.js"], cwd=BASE_DIR, capture_output=True, timeout=10)
+            subprocess.run([git_exe, "commit", "-m", "chore: auto-sync tunnel url for all devices"], cwd=BASE_DIR, capture_output=True, timeout=10)
+            subprocess.run([git_exe, "push", "origin", "main"], cwd=BASE_DIR, capture_output=True, timeout=25)
+            print("[✓] Pushed active tunnel URL to GitHub & Vercel successfully.")
+        except Exception as e:
+            print(f"[!] Git push notice: {e}")
+
 def update_api_config(tunnel_url: str):
     """Updates api-config.js so every phone connects to this tunnel URL."""
     config_content = f'''// Lucky Bingo API Configuration
@@ -51,6 +62,8 @@ def update_api_config(tunnel_url: str):
         except Exception:
             pass
 
+    threading.Thread(target=push_tunnel_config_to_github, daemon=True).start()
+
 def main():
     print("=" * 65)
     print("🎯 STARTING LUCKY BINGO GLOBAL MULTI-DEVICE SYNC SERVER")
@@ -63,13 +76,13 @@ def main():
         print("[1/3] Establishing secure public HTTPS tunnel...")
         tunnel_proc = subprocess.Popen(
             [CLOUDFLARED_EXE, "tunnel", "--url", "http://127.0.0.1:3000"],
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
         )
         start_time = time.time()
-        while time.time() - start_time < 25:
+        while time.time() - start_time < 30:
             line = tunnel_proc.stderr.readline()
             if not line:
                 time.sleep(0.2)
@@ -79,11 +92,20 @@ def main():
                 tunnel_url = m.group(0)
                 break
         
+        # Drain pipe continuously in a daemon thread to prevent buffer deadlock!
+        def drain_tunnel_output(proc):
+            try:
+                for _ in iter(proc.stderr.readline, ''):
+                    pass
+            except Exception:
+                pass
+        threading.Thread(target=drain_tunnel_output, args=(tunnel_proc,), daemon=True).start()
+
         if tunnel_url:
             print(f"[✓] Tunnel active: {tunnel_url}")
             os.environ["TUNNEL_API_URL"] = tunnel_url
             update_api_config(tunnel_url)
-            print("[✓] Updated api-config.js with active backend URL.")
+            print("[✓] Updated app-config.js with active backend URL.")
         else:
             print("[!] Could not detect tunnel URL in time. Local server will still run on port 3000.")
     else:

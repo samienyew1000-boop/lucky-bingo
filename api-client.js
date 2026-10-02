@@ -136,6 +136,7 @@ const LuckyBingoAPI = (() => {
       return await response.json();
     } catch (e) {
       console.warn("[API] Request failed:", path, e);
+      _baseUrl = "";
       return {
         error: "Network error. Please check your connection.",
         isNetworkError: true,

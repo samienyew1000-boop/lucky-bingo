@@ -2916,25 +2916,36 @@ function handleDepositSubmit(event) {
     return;
   }
 
-  const transaction = saveWalletRequest({ type: "deposit", method, amount, reference, accountName: account.accountName, accountNumber: account.accountNumber });
-  const bonus = amount >= 100 ? Math.floor(amount * 0.2) : 0;
-  showWalletFeedback(
-    "deposit",
-    `Deposit request ${transaction.id} was sent via ${method}. ${bonus ? `Bonus pending: ${fmt(bonus)} ETB.` : "Admin approval is required."}`
-  );
-  event.currentTarget.reset();
-  toast("DEPOSIT REQUEST SENT", "win");
+  showWalletFeedback("deposit", "Submitting deposit request to server...", false);
+  const submitBtn = $("deposit-submit");
+  if (submitBtn) submitBtn.disabled = true;
 
   if (typeof LuckyBingoAPI !== "undefined") {
     LuckyBingoAPI.deposit(amount, method, reference, "").then((res) => {
-      if (res && res.id) {
+      if (submitBtn) submitBtn.disabled = false;
+      if (res && (res.id || res.ok)) {
+        const txId = res.id || "DEP";
+        const bonus = amount >= 100 ? Math.floor(amount * 0.2) : 0;
         showWalletFeedback(
           "deposit",
-          `Deposit request ${res.id} submitted! Waiting for admin approval.`
+          `✅ Deposit request ${txId} submitted! ${bonus ? `Bonus pending: ${fmt(bonus)} ETB.` : "Waiting for admin approval."}`
         );
+        event.target.reset();
+        toast("DEPOSIT REQUEST SENT TO ADMIN", "win");
+        syncProfileWithServer();
+      } else {
+        const errMsg = res?.error || "Could not reach server. Please check your connection.";
+        showWalletFeedback("deposit", `❌ ${errMsg}`, true);
+        toast(errMsg, "lose");
       }
-      syncProfileWithServer();
-    }).catch(() => {});
+    }).catch((err) => {
+      if (submitBtn) submitBtn.disabled = false;
+      showWalletFeedback("deposit", "❌ Connection to server failed. Please try again.", true);
+      toast("CONNECTION FAILED", "lose");
+    });
+  } else {
+    if (submitBtn) submitBtn.disabled = false;
+    showWalletFeedback("deposit", "❌ Server offline. Please try again later.", true);
   }
 }
 
@@ -2960,31 +2971,35 @@ function handleWithdrawSubmit(event) {
     return;
   }
 
-  const transaction = saveWalletRequest({
-    type: "withdraw",
-    method,
-    amount,
-    phone,
-    heldFromBalance: true,
-  });
-
-  showWalletFeedback(
-    "withdraw",
-    `Withdrawal request ${transaction.id} for ${fmt(amount)} ETB was submitted. Amount is reserved until admin approval.`
-  );
-  event.currentTarget.reset();
-  toast("WITHDRAWAL REQUEST SENT", "win");
+  showWalletFeedback("withdraw", "Submitting withdrawal request to server...", false);
+  const submitBtn = $("withdraw-submit");
+  if (submitBtn) submitBtn.disabled = true;
 
   if (typeof LuckyBingoAPI !== "undefined") {
     LuckyBingoAPI.withdraw(amount, method, phone).then((res) => {
-      if (res && res.id) {
+      if (submitBtn) submitBtn.disabled = false;
+      if (res && (res.id || res.ok)) {
+        const txId = res.id || "WTH";
         showWalletFeedback(
           "withdraw",
-          `Withdrawal request ${res.id} for ${fmt(amount)} ETB submitted! Waiting for admin approval.`
+          `✅ Withdrawal request ${txId} for ${fmt(amount)} ETB submitted! Waiting for admin approval.`
         );
+        event.target.reset();
+        toast("WITHDRAWAL REQUEST SENT TO ADMIN", "win");
+        syncProfileWithServer();
+      } else {
+        const errMsg = res?.error || "Could not reach server. Please check your connection.";
+        showWalletFeedback("withdraw", `❌ ${errMsg}`, true);
+        toast(errMsg, "lose");
       }
-      syncProfileWithServer();
-    }).catch(() => {});
+    }).catch((err) => {
+      if (submitBtn) submitBtn.disabled = false;
+      showWalletFeedback("withdraw", "❌ Connection to server failed. Please try again.", true);
+      toast("CONNECTION FAILED", "lose");
+    });
+  } else {
+    if (submitBtn) submitBtn.disabled = false;
+    showWalletFeedback("withdraw", "❌ Server offline. Please try again later.", true);
   }
 }
 

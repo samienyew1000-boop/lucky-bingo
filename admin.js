@@ -104,16 +104,7 @@ const DEFAULT_STATE = {
       color: "purple",
     },
   ],
-  transactions: [
-    { id: "TX-1048", playerId: "LB-00482", player: "Abebe Kebede", type: "deposit", method: "Telebirr", amount: 1200, requested: "18 min ago", status: "pending" },
-    { id: "TX-1047", playerId: "LB-00631", player: "Hana Tesfaye", type: "withdraw", method: "Bank account", amount: 800, requested: "24 min ago", status: "pending" },
-    { id: "TX-1046", playerId: "LB-00192", player: "Dawit Bekele", type: "deposit", method: "Bank transfer", amount: 850, requested: "31 min ago", status: "pending" },
-    { id: "TX-1045", playerId: "LB-00814", player: "Selamawit Girma", type: "deposit", method: "M-Pesa", amount: 1500, requested: "38 min ago", status: "pending" },
-    { id: "TX-1044", playerId: "LB-00271", player: "Yonas Alemu", type: "withdraw", method: "Telebirr", amount: 600, requested: "46 min ago", status: "pending" },
-    { id: "TX-1043", playerId: "LB-00905", player: "Meron Worku", type: "deposit", method: "Telebirr", amount: 950, requested: "52 min ago", status: "pending" },
-    { id: "TX-1042", playerId: "LB-00384", player: "Tariku Fikre", type: "withdraw", method: "Bank account", amount: 1050, requested: "1h ago", status: "pending" },
-    { id: "TX-1041", playerId: "LB-00762", player: "Liya Solomon", type: "deposit", method: "M-Pesa", amount: 1300, requested: "1h ago", status: "pending" },
-  ],
+  transactions: [],
   players: [],
   activities: [
     { kind: "finance", symbol: "↗", text: "Approved a deposit request for Hana Tesfaye", time: "8 min ago" },
