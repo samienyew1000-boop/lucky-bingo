@@ -177,9 +177,7 @@ function sanitizeRoomCatalog(rooms) {
 }
 
 function syncRoomsWithRealParticipants() {
-  if (typeof state === "object" && state !== null && Array.isArray(state.rooms)) {
-    state.rooms = sanitizeRoomCatalog(state.rooms);
-  }
+  // Authoritative server state only: do not override rooms from local storage.
 }
 
 function loadRoomCatalog(legacyRooms = null) {
@@ -241,79 +239,21 @@ try {
 } catch (e) {}
 
 function loadState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "null");
-    if (saved && saved.transactions) {
-      delete saved.transactions;
-    }
-    const livePlayers = getLiveTelegramPlayers();
-    const storedBalances = loadPlayerBalances();
-
-    // Merge live Telegram players with stored balance & profile state
-    let activePlayers = livePlayers.map((lp) => {
-      const savedP = saved?.players?.find((sp) => sp.id === lp.id || sp.phone === lp.phone);
-      const customBal = storedBalances[String(lp.id)];
-      return {
-        ...lp,
-        balance: typeof customBal === "number" ? customBal : (typeof savedP?.balance === "number" ? savedP.balance : lp.balance),
-        status: savedP?.status || lp.status,
-        games: savedP?.games ?? lp.games,
-        note: savedP?.note || lp.note,
-      };
-    });
-
-    // Also include any local players from saved state that aren't in livePlayers
-    if (saved && Array.isArray(saved.players)) {
-      saved.players.forEach((sp) => {
-        if (!activePlayers.some((ap) => ap.id === sp.id || (ap.phone && ap.phone === sp.phone))) {
-          const customBal = storedBalances[String(sp.id)];
-          activePlayers.push({
-            ...sp,
-            balance: typeof customBal === "number" ? customBal : sp.balance,
-          });
-        }
-      });
-    }
-
-    const total = activePlayers.length;
-    const verified = activePlayers.filter((p) => p.status === "active" || p.status === "verified").length;
-    const blocked = activePlayers.filter((p) => p.status === "blocked").length;
-    const idle = activePlayers.filter((p) => p.status === "idle").length;
-
-    const baseMetrics = {
-      totalPlayers: total,
-      verifiedPlayers: verified,
-      newPlayers: total,
-      blockedPlayers: blocked,
-      idlePlayers: idle,
-      processedToday: (saved && saved.metrics && saved.metrics.processedToday) || 0,
-    };
-
-    if (!saved) {
-      return {
-        ...copy(DEFAULT_STATE),
-        metrics: baseMetrics,
-        rooms: loadRoomCatalog(),
-        transactions: [],
-        players: activePlayers,
-      };
-    }
-
-    return {
-      ...copy(DEFAULT_STATE),
-      ...saved,
-      metrics: {
-        ...(saved.metrics || {}),
-        ...baseMetrics,
-      },
-      rooms: loadRoomCatalog(saved.rooms),
-      transactions: [], // Authoritative server-synced SQLite data only
-      players: activePlayers,
-      activities: Array.isArray(saved.activities) ? saved.activities : copy(DEFAULT_STATE.activities),
-    };
-  } catch (error) {
-    return { ...copy(DEFAULT_STATE), rooms: loadRoomCatalog(), transactions: [] };
-  }
+  return {
+    ...copy(DEFAULT_STATE),
+    metrics: {
+      totalPlayers: 0,
+      verifiedPlayers: 0,
+      newPlayers: 0,
+      blockedPlayers: 0,
+      idlePlayers: 0,
+      processedToday: 0,
+    },
+    rooms: copy(DEFAULT_STATE.rooms),
+    transactions: [],
+    players: [],
+    activities: copy(DEFAULT_STATE.activities),
+  };
 }
 
 function loadSettings() {
@@ -916,6 +856,12 @@ function savePlayerFromForm(event) {
     if (previousStatus !== "blocked" && nextStatus === "blocked") state.metrics.blockedPlayers += 1;
     if (previousStatus === "blocked" && nextStatus !== "blocked") state.metrics.blockedPlayers = Math.max(0, state.metrics.blockedPlayers - 1);
     addActivity(`Updated the profile for ${existing.name}`, "security", "✎");
+    if (existing.userId && typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.updateAdminUser) {
+      LuckyBingoAPI.updateAdminUser(existing.userId, {
+        balance: existing.balance,
+        status: existing.status,
+      }).catch(() => {});
+    }
     showToast("Player profile updated.");
   } else {
     const nextId = makePlayerId();
@@ -938,7 +884,6 @@ function savePlayerFromForm(event) {
     addActivity(`Added new player ${newPlayer.name}`, "security", "+");
     showToast(`${newPlayer.name} was added to the player directory.`);
   }
-  saveState();
   closeModal("player-modal");
   renderAll();
 }
@@ -956,7 +901,9 @@ function togglePlayerStatus(id) {
   state.metrics.blockedPlayers += wasBlocked ? -1 : 1;
   state.metrics.blockedPlayers = Math.max(0, state.metrics.blockedPlayers);
   addActivity(`${wasBlocked ? "Unblocked" : "Blocked"} player account ${player.id}`, "security", wasBlocked ? "✓" : "!");
-  saveState();
+  if (player.userId && typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.updateAdminUser) {
+    LuckyBingoAPI.updateAdminUser(player.userId, { status: player.status }).catch(() => {});
+  }
   renderAll();
   showToast(`${player.name} is now ${player.status}.`);
 }
@@ -1378,36 +1325,48 @@ function _startAdminDataPoll() {
         totalPlayers: data.metrics.totalPlayers ?? state.metrics.totalPlayers,
         verifiedPlayers: data.metrics.verifiedPlayers ?? state.metrics.verifiedPlayers,
         activePlayers: data.metrics.activePlayers ?? state.metrics.activePlayers,
+        processedToday: data.metrics.processedToday ?? (Number(data.metrics.totalDeposits || 0) + Number(data.metrics.totalWithdrawals || 0)),
       };
-      renderMetrics();
     }
 
     // 5. Sync settings from authoritative server
     if (data.settings) {
-      if (typeof data.settings.commission === "number" && settings.commission !== data.settings.commission) {
-        settings.commission = data.settings.commission;
+      const s = data.settings;
+      if (typeof s.commission === "number" && settings.commission !== s.commission) {
+        settings.commission = s.commission;
         const commInp = $("setting-commission");
-        if (commInp && document.activeElement !== commInp) {
-          commInp.value = settings.commission;
-        }
+        if (commInp && document.activeElement !== commInp) commInp.value = settings.commission;
       }
-      if (data.settings.winning_pattern && settings.winningPattern !== data.settings.winning_pattern) {
-        settings.winningPattern = data.settings.winning_pattern;
+      const winPat = s.winning_pattern || s.winningPattern;
+      if (winPat && settings.winningPattern !== winPat) {
+        settings.winningPattern = winPat;
         const patInp = $("setting-winning-pattern");
-        if (patInp && document.activeElement !== patInp) {
-          patInp.value = settings.winningPattern;
-        }
+        if (patInp && document.activeElement !== patInp) patInp.value = settings.winningPattern;
       }
-      if (typeof data.settings.countdown === "number" && settings.countdown !== data.settings.countdown) {
-        settings.countdown = data.settings.countdown;
+      const cd = typeof s.countdown === "number" ? s.countdown : null;
+      if (cd !== null && settings.countdown !== cd) {
+        settings.countdown = cd;
         const cdInp = $("setting-countdown");
-        if (cdInp && document.activeElement !== cdInp) {
-          cdInp.value = settings.countdown;
-        }
+        if (cdInp && document.activeElement !== cdInp) cdInp.value = settings.countdown;
       }
+      const sb = s.starting_bonus ?? s.startingBonus;
+      if (typeof sb === "number" && settings.startingBonus !== sb) {
+        settings.startingBonus = sb;
+        const sbInp = $("setting-starting-bonus");
+        if (sbInp && document.activeElement !== sbInp) sbInp.value = settings.startingBonus;
+      }
+      if (s.depositTelebirrPhone) settings.depositTelebirrPhone = s.depositTelebirrPhone;
+      if (s.depositTelebirrName) settings.depositTelebirrName = s.depositTelebirrName;
+      if (s.depositCbeBirrPhone) settings.depositCbeBirrPhone = s.depositCbeBirrPhone;
+      if (s.depositCbeBirrName) settings.depositCbeBirrName = s.depositCbeBirrName;
+      if (s.depositMpesaPhone) settings.depositMpesaPhone = s.depositMpesaPhone;
+      if (s.depositMpesaName) settings.depositMpesaName = s.depositMpesaName;
     }
 
     renderDashboard();
+    renderLive();
+    renderTransactions();
+    renderPlayers();
   }, 1500);
 }
 

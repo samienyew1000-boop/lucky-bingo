@@ -1879,6 +1879,7 @@ def get_admin_overview() -> Dict[str, Any]:
                 'pendingTransactions': pend_tx,
                 'totalDeposits': tot_dep,
                 'totalWithdrawals': tot_wth,
+                'processedToday': tot_dep + tot_wth,
             },
             'settings': get_all_game_settings()
         }
