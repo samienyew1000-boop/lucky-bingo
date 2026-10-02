@@ -1027,7 +1027,14 @@ function bindSettings() {
         if (settings.autoCall && document.querySelector("#admin-live.is-active")) startLiveTimer();
         else stopLiveTimer();
       }
-      if (isFinal) showToast("Settings saved.");
+      if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.updateAdminSettings) {
+        LuckyBingoAPI.updateAdminSettings(settings).then((res) => {
+          if (res && res.settings) {
+            console.log("[Settings] Server settings updated:", res.settings);
+          }
+        }).catch(() => {});
+      }
+      if (isFinal) showToast("Settings saved to server.");
     };
 
     input.addEventListener("change", () => onUpdate(true));
@@ -1334,6 +1341,31 @@ function syncAdminWithServer() {
         activePlayers: data.metrics.activePlayers ?? state.metrics.activePlayers,
       };
       renderMetrics();
+    }
+
+    // 5. Sync settings from authoritative server
+    if (data.settings) {
+      if (typeof data.settings.commission === "number" && settings.commission !== data.settings.commission) {
+        settings.commission = data.settings.commission;
+        const commInp = $("setting-commission");
+        if (commInp && document.activeElement !== commInp) {
+          commInp.value = settings.commission;
+        }
+      }
+      if (data.settings.winning_pattern && settings.winningPattern !== data.settings.winning_pattern) {
+        settings.winningPattern = data.settings.winning_pattern;
+        const patInp = $("setting-winning-pattern");
+        if (patInp && document.activeElement !== patInp) {
+          patInp.value = settings.winningPattern;
+        }
+      }
+      if (typeof data.settings.countdown === "number" && settings.countdown !== data.settings.countdown) {
+        settings.countdown = data.settings.countdown;
+        const cdInp = $("setting-countdown");
+        if (cdInp && document.activeElement !== cdInp) {
+          cdInp.value = settings.countdown;
+        }
+      }
     }
 
     renderDashboard();

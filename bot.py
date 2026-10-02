@@ -252,9 +252,70 @@ def init_db() -> None:
             cursor.execute("ALTER TABLE game_rooms ADD COLUMN enabled INTEGER DEFAULT 1")
         except sqlite3.OperationalError:
             pass
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS game_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT
+            )
+        """)
+        cursor.execute("INSERT OR IGNORE INTO game_settings (key, value, updated_at) VALUES ('commission', '20', datetime('now'))")
+        cursor.execute("INSERT OR IGNORE INTO game_settings (key, value, updated_at) VALUES ('winning_pattern', '\"1\"', datetime('now'))")
+        cursor.execute("INSERT OR IGNORE INTO game_settings (key, value, updated_at) VALUES ('countdown', '60', datetime('now'))")
         
         conn.commit()
     logger.info("SQLite database initialized at: %s", DB_PATH)
+
+def get_game_setting(key: str, default: Any = None) -> Any:
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT value FROM game_settings WHERE key = ?', (key,))
+            row = cursor.fetchone()
+            if row and row['value'] is not None:
+                try:
+                    return json.loads(row['value'])
+                except Exception:
+                    return row['value']
+    except Exception:
+        pass
+    return default
+
+def set_game_setting(key: str, value: Any) -> None:
+    now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    val_str = json.dumps(value) if not isinstance(value, str) else value
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO game_settings (key, value, updated_at) VALUES (?, ?, ?) '
+                'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+                (key, val_str, now)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error setting game_settings {key}: {e}")
+
+def get_all_game_settings() -> Dict[str, Any]:
+    settings = {
+        'commission': 20,
+        'winning_pattern': '1',
+        'countdown': 60
+    }
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT key, value FROM game_settings')
+            rows = cursor.fetchall()
+            for r in rows:
+                try:
+                    settings[r['key']] = json.loads(r['value'])
+                except Exception:
+                    settings[r['key']] = r['value']
+    except Exception:
+        pass
+    return settings
 
 def get_db_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
@@ -424,6 +485,12 @@ class GameEngine:
             bot_players = self._bot_players.get(room_id, [])
             round_result = self.get_round_result(room_id)
 
+            # Calculate derash based on setting commission %
+            comm_pct = float(get_game_setting('commission', 20))
+            total_cards = sum(len(json.loads(p.get('card_ids', '[]') or '[]')) for p in players)
+            total_pot = max(1, total_cards) * int(room_id)
+            derash = max(float(room_id), round(total_pot * (1.0 - comm_pct / 100.0), 2))
+
             return {
                 'room_id': room_id,
                 'stake': int(room_id),
@@ -435,6 +502,8 @@ class GameEngine:
                 'calls': calls,
                 'last_result': round_result,
                 'player_count': len(players) + len(bot_players),
+                'derash': derash,
+                'commission_pct': comm_pct,
             }
     
     def join_room(self, room_id, user_id, card_ids):
@@ -632,13 +701,7 @@ class GameEngine:
                 cursor.execute('INSERT INTO game_calls (room_id, round_id, call_index, number, called_at) VALUES (?, ?, ?, ?, ?)', (room_id, round_id, call_index, next_num, now))
                 conn.commit()
                 
-                # Check for bot wins (after 26 calls, ~5.5% chance per call)
-                if call_index >= 26 and random.random() < 0.055:
-                    bots = self._bot_players.get(room_id, [])
-                    if bots:
-                        winner = random.choice(bots)
-                        self._end_round(room_id, conn, winner_id=None, winner_name=winner['name'], is_bot=True)
-                        return
+                pass
         
         # Schedule next call
         self._schedule_next_call(room_id)
@@ -707,10 +770,12 @@ class GameEngine:
 
                 winner_name = player['first_name'] or player['username'] or 'Player'
                 self._end_round(room_id, conn, winner_id=user_id, winner_name=winner_name)
-                return {'ok': True, 'winner': winner_name}
+                res = self.get_round_result(room_id)
+                prize = res.get('prize', 0) if res else 0
+                return {'ok': True, 'winner': winner_name, 'prize': prize}
     
     def _end_round(self, room_id, conn, winner_id=None, winner_name='', is_bot=False):
-        """End a round, distribute prizes, reset room."""
+        """End a round, distribute derash prize to the only 1 winner, reset room."""
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (room_id,))
         room = cursor.fetchone()
@@ -720,19 +785,38 @@ class GameEngine:
         round_id = room['round_id']
         stake = int(room_id)
         
-        # Count total players for prize calc
+        # Count total cards played in this round
         cursor.execute('SELECT user_id, card_ids FROM room_players WHERE room_id = ? AND round_id = ?', (room_id, round_id))
         real_players = cursor.fetchall()
-        bot_count = len(self._bot_players.get(room_id, []))
         
-        total_cards = sum(len(json.loads(p['card_ids'])) for p in real_players) + bot_count
+        total_cards = sum(len(json.loads(p['card_ids'])) for p in real_players)
+        if total_cards <= 0:
+            total_cards = 1
         total_pot = total_cards * stake
-        commission = total_pot * 0.2  # 20% commission
-        prize = total_pot - commission
         
-        # Award prize to winner if real player
+        # Deduct percentage set in settings (Commission)
+        try:
+            comm_pct = float(get_game_setting('commission', 20))
+        except (ValueError, TypeError):
+            comm_pct = 20.0
+        commission_rate = comm_pct / 100.0
+        commission_amount = total_pot * commission_rate
+        
+        # Derash: remaining pot after deducting setting percent (always given 100% to the 1 winner)
+        derash = max(float(stake), round(total_pot - commission_amount, 2))
+        
+        # Award derash to the ONLY 1 winner if real player
         if winner_id and not is_bot:
-            cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (prize, winner_id))
+            cursor.execute('UPDATE users SET balance = balance + ? WHERE id = ?', (derash, winner_id))
+            # Record winning transaction in history
+            tx_id = f"WIN-{int(time.time())}-{random.randint(1000, 9999)}"
+            now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute(
+                "INSERT INTO transactions (id, user_id, type, method, amount, phone_number, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (tx_id, winner_id, 'win', 'Bingo Derash Win', derash, f"Room {stake} ETB · Round #{round_id}", 'completed', now)
+            )
+            conn.commit()
+            export_admin_players()
         
         # Cancel any pending timers
         if room_id in self._call_timers:
@@ -751,7 +835,7 @@ class GameEngine:
             'winner_name': winner_name,
             'winner_id': winner_id,
             'is_bot': is_bot,
-            'prize': prize,
+            'prize': derash,
             'round_id': round_id,
             'ended_at': time.time()
         }
@@ -841,8 +925,8 @@ class GameEngine:
                 cursor = conn.cursor()
                 cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (str(room_id),))
                 room = cursor.fetchone()
-                if not room or room['status'] != 'open':
-                    return {'error': 'Room cannot be started (must be open)'}
+                if not room or room['status'] not in ('open', 'countdown'):
+                    return {'error': 'Room cannot be started (must be open or in countdown)'}
                 if not self._bot_players.get(str(room_id)):
                     self._add_bot_players(str(room_id))
                 ends_at = time.time() + countdown_secs
@@ -1787,7 +1871,8 @@ def get_admin_overview() -> Dict[str, Any]:
                 'pendingTransactions': pend_tx,
                 'totalDeposits': tot_dep,
                 'totalWithdrawals': tot_wth,
-            }
+            },
+            'settings': get_all_game_settings()
         }
 
 def update_admin_transaction(tx_id: str, action: str) -> Dict[str, Any]:
@@ -1935,7 +2020,10 @@ def start_background_web_server() -> None:
                             if result:
                                 state['last_result'] = result
                             rooms_info.append(state)
-                    return self.send_json({'rooms': rooms_info})
+                    return self.send_json({
+                        'rooms': rooms_info,
+                        'settings': get_all_game_settings()
+                    })
                     
                 elif path == '/api/room-state':
                     room_id = query.get('room_id')
@@ -1949,11 +2037,15 @@ def start_background_web_server() -> None:
                         state['last_result'] = result
                     return self.send_json(state)
 
-                # 2. Admin overview (all rooms, active players, real users, transactions, metrics)
+                # 2. Admin overview (all rooms, active players, real users, transactions, metrics, settings)
                 elif path == '/api/admin/overview':
                     if not self.is_admin_request():
                         return self.send_json({'error': 'Unauthorized'}, status=401)
                     return self.send_json(get_admin_overview())
+
+                # 2b. Public/Admin settings endpoint
+                elif path == '/api/settings':
+                    return self.send_json(get_all_game_settings())
                 
                 # 3. User profile endpoint
                 elif path == '/api/me':
@@ -2070,6 +2162,14 @@ def start_background_web_server() -> None:
                     return self.send_json({'error': 'Missing user_id'}, status=400)
                 res = update_admin_user(user_id, body)
                 return self.send_json(res)
+
+            # 4b. Admin settings control
+            if parsed_path == '/api/admin/settings/update':
+                if not self.is_admin_request():
+                    return self.send_json({'error': 'Unauthorized'}, status=401)
+                for k, v in body.items():
+                    set_game_setting(k, v)
+                return self.send_json({'ok': True, 'settings': get_all_game_settings()})
 
             # 5. Player authenticated endpoints
             if self.path.startswith('/api/'):

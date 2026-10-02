@@ -248,6 +248,9 @@ function startServerLobbySync() {
         lifecycleKey: `${sRoom.status}:${sRoom.round_id}:server`,
       };
     }
+    if (data.settings && typeof data.settings.commission === "number") {
+      window.COMMISSION_RATE = data.settings.commission / 100.0;
+    }
     if (views.lobby && views.lobby.classList.contains("is-on")) renderRooms();
     _lobbySyncTick++;
     if (_lobbySyncTick % 2 === 0) {
@@ -1207,7 +1210,8 @@ function canAfford(roomStake) {
 function calculateDerash(players, roomStake) {
   const p = Number(players) || 0;
   if (p <= 0) return 0;
-  return Math.floor(p * roomStake * (1 - COMMISSION_RATE));
+  const rate = typeof window.COMMISSION_RATE === "number" ? window.COMMISSION_RATE : COMMISSION_RATE;
+  return Math.max(roomStake, Math.floor(p * roomStake * (1 - rate)));
 }
 
 function renderPickRoomSummary() {
@@ -2590,10 +2594,7 @@ function nextCall() {
   const n = callPool.pop();
   handleSingleCall(n);
 
-  if (!claimed && called.length >= 26 && Math.random() < 0.055) {
-    botWins();
-    return;
-  }
+  // Only real players can claim and win
 }
 
 function cellHit(card, index, hit) {
@@ -2649,36 +2650,50 @@ function claimBingo() {
   playing = false;
   $("bingo-btn").disabled = true;
 
-  const mult = kind === "FULL HOUSE" ? 1 : 0.22;
-  const totalPlayers = Math.max(2, selected.size + (botPlayers || 3));
-  const pool = calculateDerash(totalPlayers, stake);
-  const win = Math.max(stake, Math.round(pool * mult));
-  balance += win;
-  saveBalance();
-  renderBalance();
-  recordPlayerTransaction({
-    type: "win",
-    method: "Derash Prize Win",
-    amount: win,
-    status: "completed",
-    details: `${kind} · Card #${winCard}`,
-  });
-  rememberWinningCard(stake, winCard, PLAYER_NAME, win);
+  const server = activeRoomId ? serverRoomStates[String(activeRoomId)] : null;
+  const playersCount = server ? Number(server.player_count) || 2 : 2;
+  const estimatedDerash = calculateDerash(playersCount, stake);
+
   roundOutcome = "win";
   roundWinnerName = PLAYER_NAME;
   roundWinKind = kind;
   roundWinCardId = winCard;
-  $("game-status").textContent = `${kind} on card #${winCard} · +${fmt(win)} ETB`;
-  showRoundResult("win", PLAYER_NAME, kind, winCard);
   renderMineCards();
-  toast(`WON! +${fmt(win)} ETB`, "win");
-  showWinnerOverlay("win", PLAYER_NAME, win, winCard, kind);
   playBingoVoice();
 
   if (activeRoomId && winCard && typeof LuckyBingoAPI !== "undefined") {
     LuckyBingoAPI.claimBingo(activeRoomId, winCard).then((res) => {
+      if (res && res.ok) {
+        const prizeWon = Number(res.prize) || estimatedDerash;
+        $("game-status").textContent = `${kind} on card #${winCard} · +${fmt(prizeWon)} ETB`;
+        showRoundResult("win", PLAYER_NAME, kind, winCard);
+        toast(`WON! +${fmt(prizeWon)} ETB`, "win");
+        showWinnerOverlay("win", PLAYER_NAME, prizeWon, winCard, kind);
+        rememberWinningCard(stake, winCard, PLAYER_NAME, prizeWon);
+        recordPlayerTransaction({
+          type: "win",
+          method: "Derash Prize Win",
+          amount: prizeWon,
+          status: "completed",
+          details: `${kind} · Card #${winCard}`,
+        });
+      } else {
+        toast(res?.error || "CLAIM REJECTED", "lose");
+      }
       syncProfileWithServer();
-    }).catch(() => {});
+    }).catch(() => {
+      syncProfileWithServer();
+    });
+  } else {
+    const prizeWon = estimatedDerash;
+    balance += prizeWon;
+    saveBalance();
+    renderBalance();
+    $("game-status").textContent = `${kind} on card #${winCard} · +${fmt(prizeWon)} ETB`;
+    showRoundResult("win", PLAYER_NAME, kind, winCard);
+    toast(`WON! +${fmt(prizeWon)} ETB`, "win");
+    showWinnerOverlay("win", PLAYER_NAME, prizeWon, winCard, kind);
+    rememberWinningCard(stake, winCard, PLAYER_NAME, prizeWon);
   }
 
   setTimeout(() => {
@@ -2687,33 +2702,8 @@ function claimBingo() {
 }
 
 function botWins() {
-  if (claimed || !playing) return;
-  claimed = true;
-  playing = false;
-  clearInterval(callTimer);
-  callTimer = null;
-  const BOT_WINNER_NAMES = [
-    "Abebe T.", "Sara M.", "Dawit K.", "Hanan A.", "Yonas B.",
-    "Selam W.", "Tigist G.", "Bereket F.", "Kidus N.", "Bethlehem D."
-  ];
-  const winnerName = BOT_WINNER_NAMES[Math.floor(Math.random() * BOT_WINNER_NAMES.length)] || "Dawit K.";
-  const botCardId = [...takenByOthers][0] || Math.floor(Math.random() * 900) + 1;
-  const totalPlayers = Math.max(2, selected.size + (botPlayers || 3));
-  const botPrize = calculateDerash(totalPlayers, stake);
-  roundOutcome = "lose";
-  roundWinnerName = winnerName;
-  roundWinCardId = botCardId;
-  const bingoBtn = $("bingo-btn");
-  if (bingoBtn) bingoBtn.disabled = true;
-  $("game-status").textContent = `${winnerName} claimed Bingo!`;
-  showRoundResult("lose", winnerName, "LINE", botCardId);
-  markLoserCards();
-  renderMineCards();
-  toast(`${winnerName} CLAIMED BINGO!`, "lose");
-  showWinnerOverlay("lose", winnerName, botPrize, botCardId, "LINE");
-  setTimeout(() => {
-    returnToCardSelection();
-  }, 5000);
+  // Disabled: Only real human players can claim and win
+  return;
 }
 
 function leaveGame() {

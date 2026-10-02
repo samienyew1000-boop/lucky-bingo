@@ -299,6 +299,17 @@ const LuckyBingoAPI = (() => {
     });
   }
 
+  async function getSettings() {
+    return apiRequest("/api/settings");
+  }
+
+  async function updateAdminSettings(settings = {}) {
+    return apiRequest("/api/admin/settings/update", {
+      method: "POST",
+      body: JSON.stringify(settings),
+    });
+  }
+
   let _adminPollTimer = null;
   let _adminPollCallback = null;
 
@@ -356,6 +367,8 @@ const LuckyBingoAPI = (() => {
     updateAdminRoom,
     updateAdminTransaction,
     updateAdminUser,
+    getSettings,
+    updateAdminSettings,
     startAdminPoll,
     stopAdminPoll,
   };

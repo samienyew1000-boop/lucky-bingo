@@ -11,7 +11,7 @@
   }
 
   // Pre-configured cloud or tunnel backend URL
-  const DEFAULT_BACKEND_URL = "https://thy-dublin-wear-declare.trycloudflare.com";
+  const DEFAULT_BACKEND_URL = "https://julie-bomb-plane-commercial.trycloudflare.com";
 
   window.LUCKY_BINGO_API_URL =
     window.LUCKY_BINGO_API_URL ||

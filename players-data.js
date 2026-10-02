@@ -31,6 +31,45 @@ window.LUCKY_BINGO_PAYMENT_METHODS = {
 };
 window.LUCKY_BINGO_PLAYERS = [
   {
+    "id": "TG-1110001",
+    "name": "Lucky Player",
+    "username": "@Player_Winner",
+    "email": "Player_Winner@t.me",
+    "phone": "N/A",
+    "balance": 114.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 1110001)"
+  },
+  {
+    "id": "TG-2220002",
+    "name": "Lucky Player",
+    "username": "@Player_Opponent",
+    "email": "Player_Opponent@t.me",
+    "phone": "N/A",
+    "balance": 80.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 2220002)"
+  },
+  {
+    "id": "TG-8892266325",
+    "name": "Abel Tesfay",
+    "username": "ID: 8892266325",
+    "email": "8892266325@t.me",
+    "phone": "N/A",
+    "balance": 100.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 8892266325)"
+  },
+  {
     "id": "TG-987654321",
     "name": "Lucky Player",
     "username": "@Player_Test_Sync",
