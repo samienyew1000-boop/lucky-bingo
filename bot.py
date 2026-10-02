@@ -109,9 +109,9 @@ def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bo
     return base
 
 # Authorized Administrators (comma-separated in .env or set here)
-raw_usernames = os.getenv("ADMIN_USERNAMES", "samTesfa19,su121316")
+raw_usernames = os.getenv("ADMIN_USERNAMES", "0999909474,su121316,samTesfa19")
 ADMIN_USERNAMES = [u.strip().lstrip("@").lower() for u in raw_usernames.split(",") if u.strip()]
-raw_phones = os.getenv("ADMIN_PHONES", "+251939292694,+251999909474,0999909474")
+raw_phones = os.getenv("ADMIN_PHONES", "0999909474,+251999909474,+251939292694")
 ADMIN_PHONES = [p.strip() for p in raw_phones.split(",") if p.strip()]
 raw_ids = os.getenv("ADMIN_TELEGRAM_IDS", "5663531258")
 ADMIN_TELEGRAM_IDS = [int(i.strip()) for i in raw_ids.split(",") if i.strip().isdigit()]
@@ -436,10 +436,13 @@ def export_admin_players() -> None:
                 "note": f"Telegram Verified Player (TG ID: {uid})",
             })
 
+        admin_uname = (admin_row["username"] if (admin_row and admin_row["username"]) else (ADMIN_USERNAMES[0] if ADMIN_USERNAMES else "0999909474"))
+        admin_uname_disp = admin_uname if (admin_uname.startswith("@") or admin_uname.isdigit() or admin_uname.startswith("+")) else f"@{admin_uname}"
+
         admin_data = {
-            "name": (f"{admin_row['first_name'] or ''} {admin_row['last_name'] or ''}".strip() or "Super Administrator") if admin_row else "Super Administrator",
-            "username": f"@{admin_row['username']}" if (admin_row and admin_row["username"]) else (f"@{ADMIN_USERNAMES[0]}" if ADMIN_USERNAMES else "@Admin"),
-            "phone": (admin_row["phone_number"] if admin_row and admin_row["phone_number"] else (ADMIN_PHONES[0] if ADMIN_PHONES else "N/A")),
+            "name": (f"{admin_row['first_name'] or ''} {admin_row['last_name'] or ''}".strip() or "0999909474") if admin_row else "0999909474",
+            "username": admin_uname_disp,
+            "phone": (admin_row["phone_number"] if admin_row and admin_row["phone_number"] else (ADMIN_PHONES[0] if ADMIN_PHONES else "0999909474")),
             "role": "Super administrator"
         }
         # Check if custom settings exist in data/payment_settings.json
@@ -1965,9 +1968,9 @@ def start_background_web_server() -> None:
             auth_header = self.headers.get('Authorization', '')
             if auth_header.startswith('Bearer '):
                 token = auth_header.split(' ', 1)[1].strip()
-            expected_token = hashlib.sha256(f"su121316:{ADMIN_PASSWORD}".encode()).hexdigest()
-            alt_token = hashlib.sha256(f"samtesfa19:{ADMIN_PASSWORD}".encode()).hexdigest()
-            if token in (expected_token, alt_token) or admin_pwd == ADMIN_PASSWORD:
+            valid_admin_identifiers = [adm.lower() for adm in ADMIN_USERNAMES + ADMIN_PHONES] + ["0999909474", "+251999909474", "su121316", "samtesfa19"]
+            valid_tokens = [hashlib.sha256(f"{u}:{ADMIN_PASSWORD}".encode()).hexdigest() for u in valid_admin_identifiers]
+            if token in valid_tokens or admin_pwd == ADMIN_PASSWORD:
                 return True
             return False
 
@@ -2123,7 +2126,8 @@ def start_background_web_server() -> None:
             if parsed_path == '/api/admin/login':
                 u = str(body.get('username', '')).strip().lstrip('@').lower()
                 p = str(body.get('password', '')).strip()
-                if u in [adm.lower() for adm in ADMIN_USERNAMES] and p == ADMIN_PASSWORD:
+                valid_admin_identifiers = [adm.lower() for adm in ADMIN_USERNAMES + ADMIN_PHONES] + ["0999909474", "+251999909474", "999909474"]
+                if u in valid_admin_identifiers and p == ADMIN_PASSWORD:
                     token = hashlib.sha256(f"{u}:{ADMIN_PASSWORD}".encode()).hexdigest()
                     return self.send_json({'ok': True, 'username': u, 'token': token, 'role': 'admin'})
                 return self.send_json({'error': 'Invalid credentials'}, status=401)

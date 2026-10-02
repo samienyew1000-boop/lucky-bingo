@@ -741,8 +741,8 @@ function checkAdminAccess() {
   const adminBtn = $("admin-link") || document.querySelector(".lb-admin-link");
   if (!adminBtn) return;
 
-  const ADMIN_USERNAMES = ["samtesfa19", "su121316"];
-  const ADMIN_UIDS = ["5663531258"];
+  const ADMIN_USERNAMES = ["0999909474", "su121316", "samtesfa19"];
+  const ADMIN_UIDS = ["5663531258", "0999909474"];
 
   let isAdmin = false;
 

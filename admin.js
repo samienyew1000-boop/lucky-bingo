@@ -7,7 +7,7 @@ const ROOM_LIFECYCLE_KEY = "lucky-bingo-room-lifecycle-v1";
 const WINNING_PATTERN_OPTIONS = Object.freeze(["1", "2", "3", "4", "full-house"]);
 
 const ADMIN_AUTH_CONFIG = {
-  validUsers: ["su121316", "samtesfa19"],
+  validUsers: ["0999909474", "+251999909474", "999909474", "su121316", "samtesfa19"],
   password: "Sj$0332#89",
 };
 
@@ -27,7 +27,7 @@ function updateAdminUIAuth(isAuthenticated, username = "") {
     overlay.hidden = true;
     shell.style.display = "";
     if (username) {
-      const displayUser = username.startsWith("@") ? username : "@" + username;
+      const displayUser = username.startsWith("@") || /^\+?\d+$/.test(username) ? username : "@" + username;
       if ($("admin-user-name")) $("admin-user-name").textContent = displayUser;
       if ($("admin-user-role")) $("admin-user-role").textContent = "Super administrator";
     }
@@ -49,7 +49,7 @@ function updateAdminUIAuth(isAuthenticated, username = "") {
     }
     const userInp = $("admin-login-username");
     if (userInp) {
-      if (!userInp.value) userInp.value = "@Su121316";
+      if (!userInp.value) userInp.value = "0999909474";
       setTimeout(() => $("admin-login-password")?.focus(), 50);
     }
   }
@@ -792,8 +792,17 @@ function renderAdminProfile() {
   const roleEl = $("admin-user-role");
   const avatarEl = $("admin-user-avatar");
   if (nameEl && admin.name) nameEl.textContent = admin.name;
-  if (roleEl && admin.username) roleEl.textContent = `Super administrator (${admin.username})`;
-  if (avatarEl && admin.name) avatarEl.textContent = initials(admin.name);
+  if (roleEl) {
+    const idDisp = admin.username ? (admin.username.startsWith("@") || /^\+?\d+$/.test(admin.username) ? admin.username : "@" + admin.username) : (admin.phone || "0999909474");
+    roleEl.textContent = `Super administrator (${idDisp})`;
+  }
+  if (avatarEl) {
+    if (/^\+?\d+$/.test(admin.name)) {
+      avatarEl.textContent = "09";
+    } else {
+      avatarEl.textContent = initials(admin.name);
+    }
+  }
 }
 
 function renderAll() {
@@ -1132,7 +1141,7 @@ function bindEvents() {
         sessionStorage.setItem("lb_admin_password", cleanPass);
         localStorage.setItem("lb_admin_auth", "true");
         localStorage.setItem("lb_admin_password", cleanPass);
-        const formattedUser = uInput.trim().startsWith("@") ? uInput.trim() : "@" + uInput.trim();
+        const formattedUser = /^\+?\d+$/.test(uInput.trim()) ? uInput.trim() : (uInput.trim().startsWith("@") ? uInput.trim() : "@" + uInput.trim());
         sessionStorage.setItem("lb_admin_user", formattedUser);
         localStorage.setItem("lb_admin_user", formattedUser);
         updateAdminUIAuth(true, formattedUser);
