@@ -31,6 +31,19 @@ window.LUCKY_BINGO_PAYMENT_METHODS = {
 };
 window.LUCKY_BINGO_PLAYERS = [
   {
+    "id": "TG-551046010",
+    "name": "@Hiwisha",
+    "username": "@Ameneny",
+    "email": "Ameneny@t.me",
+    "phone": "N/A",
+    "balance": 0.0,
+    "games": 0,
+    "lastActive": "Just now",
+    "status": "active",
+    "avatar": "blue",
+    "note": "Telegram Verified Player (TG ID: 551046010)"
+  },
+  {
     "id": "TG-9236942755",
     "name": "Lucky Player",
     "username": "@Player_2755",

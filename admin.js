@@ -231,9 +231,21 @@ function getLiveTelegramPlayers() {
   return [];
 }
 
+// Purge any stale legacy local transactions from previous sessions
+try {
+  const _rawAdmin = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "null");
+  if (_rawAdmin && _rawAdmin.transactions) {
+    delete _rawAdmin.transactions;
+    localStorage.setItem(ADMIN_STATE_KEY, JSON.stringify(_rawAdmin));
+  }
+} catch (e) {}
+
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "null");
+    if (saved && saved.transactions) {
+      delete saved.transactions;
+    }
     const livePlayers = getLiveTelegramPlayers();
     const storedBalances = loadPlayerBalances();
 
@@ -282,6 +294,7 @@ function loadState() {
         ...copy(DEFAULT_STATE),
         metrics: baseMetrics,
         rooms: loadRoomCatalog(),
+        transactions: [],
         players: activePlayers,
       };
     }
@@ -294,12 +307,12 @@ function loadState() {
         ...baseMetrics,
       },
       rooms: loadRoomCatalog(saved.rooms),
-      transactions: Array.isArray(saved.transactions) ? saved.transactions : copy(DEFAULT_STATE.transactions),
+      transactions: [], // Authoritative server-synced SQLite data only
       players: activePlayers,
       activities: Array.isArray(saved.activities) ? saved.activities : copy(DEFAULT_STATE.activities),
     };
   } catch (error) {
-    return { ...copy(DEFAULT_STATE), rooms: loadRoomCatalog() };
+    return { ...copy(DEFAULT_STATE), rooms: loadRoomCatalog(), transactions: [] };
   }
 }
 
@@ -317,7 +330,8 @@ function loadSettings() {
 }
 
 function saveState() {
-  localStorage.setItem(ADMIN_STATE_KEY, JSON.stringify(state));
+  const toSave = { ...state, transactions: [] };
+  localStorage.setItem(ADMIN_STATE_KEY, JSON.stringify(toSave));
   localStorage.setItem(ROOM_CATALOG_KEY, JSON.stringify(state.rooms));
 }
 
@@ -703,9 +717,15 @@ function renderTransactions() {
     return matchesType && matchesStatus && (!transactionQuery || haystack.includes(transactionQuery));
   });
   document.querySelectorAll("[data-transaction-filter]").forEach((button) => button.classList.toggle("is-active", button.dataset.transactionFilter === transactionFilter));
-  $("filter-all-count").textContent = String(state.transactions.filter((item) => item.status === "pending").length);
+  const pendingCount = state.transactions.filter((item) => item.status === "pending").length;
+  $("filter-all-count").textContent = String(pendingCount);
   $("filter-deposit-count").textContent = String(state.transactions.filter((item) => item.type === "deposit" && item.status === "pending").length);
   $("filter-withdraw-count").textContent = String(state.transactions.filter((item) => item.type === "withdraw" && item.status === "pending").length);
+  const navBadge = $("nav-transaction-badge");
+  if (navBadge) {
+    navBadge.textContent = String(pendingCount);
+    navBadge.style.display = pendingCount > 0 ? "" : "none";
+  }
   $("transaction-result-count").textContent = `Showing ${filtered.length} request${filtered.length === 1 ? "" : "s"}`;
   table.innerHTML = filtered.length ? filtered.map(transactionRow).join("") : `<tr><td colspan="7"><p class="admin-empty-note">No transactions match these filters.</p></td></tr>`;
   renderFinanceSummary();

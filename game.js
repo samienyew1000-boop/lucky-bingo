@@ -844,54 +844,15 @@ function mobileNavLabel(tab) {
 let historyFilter = "all";
 
 function recordPlayerTransaction(data) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "{}");
-    const transactions = Array.isArray(saved.transactions) ? saved.transactions : [];
-    const txn = {
-      id: makeTransactionId(),
-      playerId: PLAYER_ID,
-      player: PLAYER_NAME,
-      type: data.type || "stake",
-      method: data.method || "Game Stake",
-      amount: Number(data.amount) || 0,
-      requested: data.requested || "Just now",
-      status: data.status || "completed",
-      details: data.details || "",
-    };
-    saved.transactions = [txn, ...transactions].slice(0, 100);
-    localStorage.setItem(ADMIN_STATE_KEY, JSON.stringify(saved));
-    return txn;
-  } catch (error) {
-    return null;
-  }
+  // Authoritative server-side transactions only. Local mock transactions are disabled.
+  return null;
 }
 
 function getStoredTransactions() {
-  if (Array.isArray(window._serverTransactions) && window._serverTransactions.length > 0) {
+  if (Array.isArray(window._serverTransactions)) {
     return window._serverTransactions;
   }
-  try {
-    const saved = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "{}");
-    const transactions = Array.isArray(saved.transactions) ? saved.transactions : [];
-    if (!transactions.length) {
-      return [
-        {
-          id: "TX-1001",
-          playerId: PLAYER_ID,
-          player: PLAYER_NAME,
-          type: "bonus",
-          method: "Welcome Bonus",
-          amount: 50,
-          requested: "Today",
-          status: "completed",
-          details: "Starting balance credit",
-        },
-      ];
-    }
-    return transactions;
-  } catch (error) {
-    return [];
-  }
+  return [];
 }
 
 function renderMobilePanelContent(tab) {
@@ -2869,33 +2830,8 @@ function getActivePlayerProfile() {
 }
 
 function saveWalletRequest(request) {
-  const profile = getActivePlayerProfile();
-  const transaction = {
-    id: makeTransactionId(),
-    playerId: profile.id,
-    player: profile.name,
-    type: request.type,
-    method: request.method,
-    amount: request.amount,
-    requested: "just now",
-    status: "pending",
-    phone: request.phone || "",
-    reference: request.reference || "",
-    accountName: request.accountName || "",
-    accountNumber: request.accountNumber || "",
-    heldFromBalance: Boolean(request.heldFromBalance),
-  };
-
-  try {
-    const saved = JSON.parse(localStorage.getItem(ADMIN_STATE_KEY) || "{}");
-    const transactions = Array.isArray(saved.transactions) ? saved.transactions : [];
-    saved.transactions = [transaction, ...transactions].slice(0, 100);
-    localStorage.setItem(ADMIN_STATE_KEY, JSON.stringify(saved));
-  } catch (error) {
-    // The player request remains confirmed in the UI even if local admin storage is unavailable.
-  }
-
-  return transaction;
+  // Authoritative server-side transactions only. Local mock storage is disabled.
+  return null;
 }
 
 function handleDepositSubmit(event) {
