@@ -11,7 +11,7 @@
   }
 
   // Pre-configured cloud or tunnel backend URL
-  const DEFAULT_BACKEND_URL = "https://translated-gamecube-living-consideration.trycloudflare.com";
+  const DEFAULT_BACKEND_URL = "https://charity-caught-workflow-lawrence.trycloudflare.com";
 
   if (apiParam) {
     window.LUCKY_BINGO_API_URL = apiParam;
