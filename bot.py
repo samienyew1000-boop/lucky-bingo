@@ -363,7 +363,7 @@ def get_or_create_user(user_id: int, username: str = "", first_name: str = "", l
         cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
         row = cursor.fetchone()
         if not row:
-            initial_balance = 500.0 if is_admin else 100.0
+            initial_balance = 0.0  # Balance starts at 0 — admin must add funds manually
             initial_verified = 1  # Verified by default for seamless multi-device play
             cursor.execute("""
                 INSERT INTO users (id, username, first_name, last_name, role, balance, bonus_balance, bonus_claimed, is_verified, status, registered_at, last_active)
@@ -1227,27 +1227,21 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"መለያዎ በስልክ ቁጥር `{phone}` ተረጋግጧል ✅"
             )
         else:
-            # Brand new registration: grant 50 ETB bonus!
-            new_balance = 50.00
+            # Brand new registration: verify phone, NO auto-bonus (admin controls bonuses via settings)
             cursor.execute("""
                 UPDATE users
-                SET phone_number = ?, role = ?, balance = balance + ?, bonus_claimed = 1, is_verified = 1, last_active = ?
+                SET phone_number = ?, role = ?, bonus_claimed = 0, is_verified = 1, last_active = ?
                 WHERE id = ?
-            """, (phone, assigned_role, new_balance, now, user.id))
-
-            tx_id = f"TX-BN-{user.id}"
-            cursor.execute("""
-                INSERT OR REPLACE INTO transactions (id, user_id, type, method, amount, phone_number, status, created_at)
-                VALUES (?, ?, 'bonus', 'Welcome Bonus', ?, ?, 'completed', ?)
-            """, (tx_id, user.id, new_balance, phone, now))
+            """, (phone, assigned_role, now, user.id))
             conn.commit()
 
             msg_text = (
                 f"🎉 *እንኳን ደስ አለዎት! መለያዎ ተረጋግጧል!*\n\n"
-                f"📱 *የተረጋገጠ ስልክ:* `{phone}`\n"
-                f"🎁 *የእንኳን ደህና መጡ ቦነስ:* `50.00 ETB` ወደ ሂሳብዎ ተጨምሯል!\n\n"
-                f"አሁን በቀጥታ ጨዋታውን መጫወት ይችላሉ።"
+                f"📱 *የተረጋገጠ ስልክ:* `{phone}`\n\n"
+                f"አሁን ተጫዋቾች ጋር ተቀላቅለው ጨዋታ መጫወት ይችላሉ።\n"
+                f"ሂሳብ ለመጨመር Deposit ያድርጉ።"
             )
+
 
     # Export to admin players data immediately
     export_admin_players()
@@ -2006,10 +2000,10 @@ def start_background_web_server() -> None:
                         username=username or f"player_{str(uid)[-4:]}",
                         first_name="Lucky Player"
                     )
-                if float(u.get('balance', 0.0)) < 10.0 or not u.get('is_verified'):
+                if not u.get('is_verified'):
                     with get_db_connection() as conn:
                         cursor = conn.cursor()
-                        cursor.execute("UPDATE users SET balance = MAX(balance, 100.0), is_verified = 1 WHERE id = ?", (uid,))
+                        cursor.execute("UPDATE users SET is_verified = 1 WHERE id = ?", (uid,))
                         conn.commit()
                     u = get_user_by_id(uid)
                 return u
@@ -2195,7 +2189,33 @@ def start_background_web_server() -> None:
                     return self.send_json({'error': 'Unauthorized'}, status=401)
                 for k, v in body.items():
                     set_game_setting(k, v)
+
+                # If admin is enabling/setting a bonus amount, grant it to all users
+                bonus_amount = body.get('startingBonus') or body.get('starting_bonus')
+                bonus_enabled = body.get('startingBonusEnabled', body.get('starting_bonus_enabled'))
+                if bonus_amount is not None and bonus_enabled:
+                    try:
+                        bonus_val = float(bonus_amount)
+                        if bonus_val > 0:
+                            now_ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                            with get_db_connection() as bconn:
+                                bc = bconn.cursor()
+                                bc.execute("SELECT id FROM users WHERE role != 'admin' AND bonus_claimed = 0")
+                                eligible = bc.fetchall()
+                                for row in eligible:
+                                    uid = row['id']
+                                    bc.execute("UPDATE users SET balance = balance + ?, bonus_claimed = 1 WHERE id = ?", (bonus_val, uid))
+                                    tx_id = f"TX-BN-{uid}-{int(datetime.utcnow().timestamp())}"
+                                    bc.execute("""
+                                        INSERT OR IGNORE INTO transactions (id, user_id, type, method, amount, status, created_at)
+                                        VALUES (?, ?, 'bonus', 'Admin Bonus', ?, 'completed', ?)
+                                    """, (tx_id, uid, bonus_val, now_ts))
+                                bconn.commit()
+                    except Exception as e:
+                        logger.warning(f"Bonus grant error: {e}")
+
                 return self.send_json({'ok': True, 'settings': get_all_game_settings()})
+
 
             # 5. Player authenticated endpoints
             if self.path.startswith('/api/'):
