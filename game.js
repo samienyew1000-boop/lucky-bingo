@@ -1220,18 +1220,20 @@ function canAfford(roomStake) {
   return balance >= roomStake;
 }
 
-function calculateDerash(players, roomStake) {
-  const p = Number(players) || 0;
-  if (p <= 0) return 0;
+function calculateDerash(cardsOrPlayers, roomStake) {
+  const count = Number(cardsOrPlayers) || 0;
+  if (count <= 0) return 0;
   const rate = typeof window.COMMISSION_RATE === "number" ? window.COMMISSION_RATE : COMMISSION_RATE;
-  return Math.max(roomStake, Math.floor(p * roomStake * (1 - rate)));
+  return Math.max(roomStake, Math.floor(count * roomStake * (1 - rate)));
 }
 
 function renderPickRoomSummary() {
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
   const server = activeRoomId ? serverRoomStates[String(activeRoomId)] : null;
   const roomStake = room?.stake || stake;
-  const playerCount = server ? Number(server.player_count) || 0 : 0;
+  const totalCards = (server && typeof server.total_cards === "number" && server.total_cards > 0)
+    ? server.total_cards
+    : (server ? Number(server.player_count) || 0 : (selected.size || 0));
   const available = cardNumbers.length ? Math.max(0, cardNumbers.length - takenByOthers.size - selected.size) : 0;
   const title = $("pick-room-title");
   const entry = $("pick-entry");
@@ -1245,7 +1247,7 @@ function renderPickRoomSummary() {
   if (title) title.textContent = `${roomStake} birr Game Lobby`;
   if (entry) entry.textContent = `${roomStake} ETB`;
   if (pickStake) pickStake.textContent = `${roomStake} ETB`;
-  if (players) players.textContent = room ? fmt(playerCount) : "—";
+  if (players) players.textContent = room ? fmt(totalCards) : "—";
   if (availableEl) availableEl.textContent = cardNumbers.length ? fmt(available) : "—";
   const isCounting = pickTimer !== null && pickLeft !== null && pickLeft > 0;
   if (time) time.textContent = isCounting ? `${Math.max(0, pickLeft)}s` : (selected.size > 0 ? "Waiting" : "Open");
@@ -1286,16 +1288,25 @@ function updateGameWaiting() {
 function updateGameSummary() {
   const room = activeRoomId ? getLobbyRoom(activeRoomId) : null;
   const server = activeRoomId ? serverRoomStates[String(activeRoomId)] : null;
-  const players = server ? Number(server.player_count) || 0 : 0;
   const roomStake = room?.stake || stake;
-  const derash = calculateDerash(players, roomStake);
-  const roundId = room?.roundId || activeRoomId || "—";
+  
+  // Total cards in play: authoritative from server, fallback to client selected cards count
+  const totalCards = (server && typeof server.total_cards === "number" && server.total_cards > 0)
+    ? server.total_cards
+    : Math.max(selected.size || 1, Number(server?.player_count) || 1);
+
+  // Derash prize: authoritative from server, fallback to calculateDerash
+  const derash = (server && typeof server.derash === "number" && server.derash > 0)
+    ? server.derash
+    : calculateDerash(totalCards, roomStake);
+
+  const roundId = (server && (server.round_id || server.current_round_id)) || room?.roundId || activeRoomId || "—";
   const derashEl = $("game-derash");
   const playersEl = $("game-players");
   const stakeEl = $("game-stake");
   const roundEl = $("game-round");
   if (derashEl) derashEl.textContent = `${fmt(derash)} ETB`;
-  if (playersEl) playersEl.textContent = fmt(players);
+  if (playersEl) playersEl.textContent = fmt(totalCards);
   if (stakeEl) stakeEl.textContent = `${fmt(roomStake)} ETB`;
   if (roundEl) roundEl.textContent = String(roundId).replace(/^#/, "");
 }
@@ -1458,23 +1469,27 @@ function renderRooms() {
       const state = roomDisplayState(room);
       const roomOpen = canPlay && (state.type === "open" || state.type === "countdown");
       const roomClosed = state.type === "live" || state.type === "paused";
-      const serverPlayers = server ? Number(server.player_count) || 0 : 0;
-      const derash = calculateDerash(serverPlayers, room.stake);
-      const displayRoom = { ...room, players: serverPlayers };
+      const serverCards = server && typeof server.total_cards === "number" && server.total_cards > 0
+        ? server.total_cards
+        : (server ? Number(server.player_count) || 0 : 0);
+      const derash = (server && typeof server.derash === "number" && server.derash > 0)
+        ? server.derash
+        : calculateDerash(serverCards, room.stake);
+      const displayRoom = { ...room, players: serverCards };
       const balanceMessage = roomBalanceMessage(displayRoom, canPlay, state);
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "lb-room" + (canPlay ? "" : " is-locked") + (roomClosed ? " is-closed" : "");
       btn.disabled = roomClosed;
       btn.setAttribute("aria-disabled", String(roomClosed));
-      btn.setAttribute("aria-label", `${roomOpen ? "Play" : balanceMessage} ${room.stake} ETB room with ${serverPlayers} players and ${derash} ETB derash. ${state.ariaLabel}.`);
+      btn.setAttribute("aria-label", `${roomOpen ? "Play" : balanceMessage} ${room.stake} ETB room with ${serverCards} cards and ${derash} ETB derash. ${state.ariaLabel}.`);
       btn.innerHTML = `
         <span class="lb-room-stake">${room.stake} ETB</span>
         <span class="lb-room-active is-${state.type}" aria-live="polite">
           ${roomStatusMarkup(state)}
           <span class="lb-room-active-copy">${balanceMessage}</span>
         </span>
-        <span class="lb-room-players">${fmt(serverPlayers)}</span>
+        <span class="lb-room-players">${fmt(serverCards)}</span>
         <span class="lb-room-prize">${fmt(derash)} ETB</span>
         <span class="lb-room-play${roomOpen ? " is-enabled" : " is-disabled"}">${roomOpen ? "Play" : roomClosed ? (state.type === "live" ? "In Play" : "Closed") : "Play"}</span>
       `;
@@ -2671,8 +2686,12 @@ function claimBingo() {
   }
 
   const server = activeRoomId ? serverRoomStates[String(activeRoomId)] : null;
-  const playersCount = server ? Number(server.player_count) || 1 : 1;
-  const estimatedDerash = (server && server.derash) ? Number(server.derash) : calculateDerash(playersCount, stake);
+  const totalCards = (server && typeof server.total_cards === "number" && server.total_cards > 0)
+    ? server.total_cards
+    : Math.max(selected.size || 1, Number(server?.player_count) || 1);
+  const estimatedDerash = (server && typeof server.derash === "number" && server.derash > 0)
+    ? Number(server.derash)
+    : calculateDerash(totalCards, stake);
 
   roundOutcome = "win";
   roundWinnerName = PLAYER_NAME;
