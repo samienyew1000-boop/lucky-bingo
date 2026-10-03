@@ -904,10 +904,10 @@ class GameEngine:
         self._bot_players.pop(room_id, None)
     
     def get_round_result(self, room_id):
-        """Get the most recent round result if any (expires after 10 seconds)."""
+        """Get the most recent round result if any (expires after 45 seconds)."""
         results = getattr(self, '_round_results', {})
         result = results.get(room_id)
-        if result and time.time() - result['ended_at'] < 10:
+        if result and time.time() - result['ended_at'] < 45:
             return result
         return None
     

@@ -208,19 +208,27 @@ async function syncProfileWithServer() {
         if (recoveredStatus === "live") {
           entryCharged = true;
           if (!playing) beginLiveGame();
-        } else if (!playing && !views.pick.classList.contains("is-on")) {
-          showView("pick");
-          buildCardGrid();
-          renderCartelaPreview();
-          if (recoveredStatus === "countdown") {
-            const startsAt = Number(user.active_room.countdown_ends_at || 0) * 1000;
-            startPickCountdown(startsAt, `countdown:${user.active_room.current_round_id}:server`);
-          } else {
-            setupPickWaitingState();
+        } else {
+          if (playing || (views.game && views.game.classList.contains("is-on"))) {
+            returnToCardSelection();
+          } else if (!views.pick.classList.contains("is-on")) {
+            showView("pick");
+            buildCardGrid();
+            renderCartelaPreview();
+            if (recoveredStatus === "countdown") {
+              const startsAt = Number(user.active_room.countdown_ends_at || 0) * 1000;
+              startPickCountdown(startsAt, `countdown:${user.active_room.current_round_id}:server`);
+            } else {
+              setupPickWaitingState();
+            }
           }
         }
         LuckyBingoAPI.stopLobbyPoll();
         LuckyBingoAPI.startRoomPoll(activeRoomId, handleServerRoomState, 800);
+      }
+    } else {
+      if (playing || (views.game && views.game.classList.contains("is-on"))) {
+        returnToCardSelection();
       }
     }
 
@@ -306,6 +314,12 @@ function handleServerRoomState(sState) {
 
   // 1. Status is COUNTDOWN
   if (sState.status === "countdown") {
+    if (playing || (views.game && views.game.classList.contains("is-on"))) {
+      playing = false;
+      claimed = false;
+      clearInterval(callTimer);
+      returnToCardSelection();
+    }
     let remaining = 0;
     if (typeof sState.countdown_remaining === "number") {
       remaining = Math.max(0, sState.countdown_remaining);
@@ -346,17 +360,30 @@ function handleServerRoomState(sState) {
 
   // 3. Status is OPEN
   if (sState.status === "open") {
-    if (!pickTimer && !playing) {
+    if (playing || (views.game && views.game.classList.contains("is-on"))) {
+      playing = false;
+      claimed = false;
+      clearInterval(callTimer);
+      returnToCardSelection();
+      syncProfileWithServer();
+    } else if (!pickTimer) {
       updatePickCountdownDisplay();
       renderPickRoomSummary();
     }
   }
-  // 4. Server reports round result (Winner announced!)
+
+  // 4. Server reports round result (Winner announced or No Winner!)
   if (sState.last_result && playing && !claimed) {
     const res = sState.last_result;
-    if (res.round_id === sState.round_id && res.ended_at && (Date.now() / 1000 - res.ended_at) < 15) {
+    const isMatchingRound = (
+      res.round_id === sState.round_id ||
+      res.round_id === (sState.round_id - 1) ||
+      (res.ended_at && (Date.now() / 1000 - res.ended_at) < 40)
+    );
+    if (isMatchingRound) {
       const myProfile = typeof LuckyBingoAPI !== "undefined" ? LuckyBingoAPI.getTelegramUser() : null;
       const isMe = res.winner_id && myProfile && Number(res.winner_id) === Number(myProfile.id);
+      const isNoWinner = !res.winner_id && (res.winner_name === "No Winner" || !res.winner_name);
       claimed = true;
       playing = false;
       clearInterval(callTimer);
@@ -366,6 +393,12 @@ function handleServerRoomState(sState) {
         showRoundResult("win", roundWinnerName, "LINE", selected.values().next().value);
         showWinnerOverlay("win", roundWinnerName, res.prize, selected.values().next().value, "LINE");
         toast("YOU WON!", "win");
+      } else if (isNoWinner) {
+        roundOutcome = "lose";
+        roundWinnerName = "No Winner";
+        showRoundResult("lose", "No Winner", "None", null);
+        markLoserCards();
+        toast("NO BINGO — ROUND OVER", "lose");
       } else {
         roundOutcome = "lose";
         roundWinnerName = res.winner_name || "Opponent";
@@ -377,7 +410,7 @@ function handleServerRoomState(sState) {
       syncProfileWithServer();
       setTimeout(() => {
         returnToCardSelection();
-      }, 5000);
+      }, 4000);
     }
   }
 }
@@ -2097,6 +2130,10 @@ function returnToCardSelection() {
   renderCartelaPreview();
   setupPickWaitingState();
   renderRooms();
+  if (typeof LuckyBingoAPI !== "undefined" && activeRoomId) {
+    LuckyBingoAPI.stopLobbyPoll();
+    LuckyBingoAPI.startRoomPoll(activeRoomId, handleServerRoomState, 800);
+  }
 }
 
 function finishActiveRoomRound() {
