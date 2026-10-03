@@ -74,9 +74,7 @@ def load_dotenv(filepath=".env"):
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8903701497:AAEMVWcaDSxdz7aQLVerCn4gPiEOOoGFp4Q")
-raw_web_url = os.getenv("WEB_APP_URL", "https://lucky-bingo-iota.vercel.app/").strip()
-if not raw_web_url or "ethiodeploy" in raw_web_url:
-    raw_web_url = "https://lucky-bingo-iota.vercel.app/"
+raw_web_url = os.getenv("WEB_APP_URL", "https://lucky-bingo.ethiodeploy.com/").strip()
 WEB_APP_URL = raw_web_url if raw_web_url.endswith("/") else f"{raw_web_url}/"
 GROUP_URL = os.getenv("GROUP_URL", "https://t.me/your_telegram_channel")
 CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/su121316")
@@ -92,7 +90,7 @@ def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bo
         fragment = extra_query
         extra_query = ""
 
-    tunnel_url = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "")
+    tunnel_url = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "https://lucky-bingo.ethiodeploy.com")
     params = []
     if tunnel_url and "api=" not in base:
         params.append(f"api={urllib.parse.quote(tunnel_url, safe='')}")
