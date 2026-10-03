@@ -239,7 +239,15 @@ function startServerLobbySync() {
     for (const sRoom of data.rooms) {
       const rid = String(sRoom.room_id || sRoom.id);
       serverRoomStates[rid] = { ...sRoom };
-      const startsAt = Number(sRoom.countdown_ends_at || 0) * 1000;
+      let remaining = 0;
+      if (typeof sRoom.countdown_remaining === "number") {
+        remaining = Math.max(0, sRoom.countdown_remaining);
+      } else if (sRoom.countdown_ends_at && sRoom.server_time) {
+        remaining = Math.max(0, Math.ceil(sRoom.countdown_ends_at - sRoom.server_time));
+      } else if (sRoom.countdown_ends_at) {
+        remaining = Math.max(0, Math.ceil((Number(sRoom.countdown_ends_at) * 1000 - Date.now()) / 1000));
+      }
+      const startsAt = Date.now() + remaining * 1000;
       roomLifecycle[rid] = {
         ...(roomLifecycle[rid] || {}),
         phase: sRoom.status === "countdown" ? "countdown" : sRoom.status === "live" ? "live" : "open",
@@ -297,17 +305,28 @@ function handleServerRoomState(sState) {
   }
 
   // 1. Status is COUNTDOWN
-  if (sState.status === "countdown" && sState.countdown_ends_at > 0) {
-    const startsAt = sState.countdown_ends_at * 1000;
-    const remaining = Math.max(0, Math.ceil((startsAt - Date.now()) / 1000));
-    pickLeft = remaining;
-    pickEndsAt = startsAt;
-    updatePickCountdownDisplay();
-    updatePickInfo();
-    renderPickRoomSummary();
+  if (sState.status === "countdown") {
+    let remaining = 0;
+    if (typeof sState.countdown_remaining === "number") {
+      remaining = Math.max(0, sState.countdown_remaining);
+    } else if (sState.countdown_ends_at > 0 && typeof sState.server_time === "number") {
+      remaining = Math.max(0, Math.ceil(sState.countdown_ends_at - sState.server_time));
+    } else if (sState.countdown_ends_at > 0) {
+      const startsAt = sState.countdown_ends_at * 1000;
+      remaining = Math.max(0, Math.ceil((startsAt - Date.now()) / 1000));
+    }
 
-    // The browser clock is display-only. The server status poll is the only
-    // authority allowed to transition a shared room into the live round.
+    pickLeft = remaining;
+    pickEndsAt = Date.now() + remaining * 1000;
+    if (!pickTimer && remaining > 0) {
+      startPickCountdown(pickEndsAt);
+    } else {
+      updatePickCountdownDisplay();
+      updatePickInfo();
+      renderPickRoomSummary();
+    }
+
+    // The server status poll is the authoritative signal to transition to live
   }
 
   // 2. Status is LIVE
@@ -1795,6 +1814,16 @@ function onCardSelectionChanged() {
           balance = Number(res.balance);
           renderBalance();
         }
+        if (typeof res.countdown_remaining === "number" && res.countdown_remaining > 0) {
+          pickLeft = res.countdown_remaining;
+          pickEndsAt = Date.now() + res.countdown_remaining * 1000;
+          if (!pickTimer) {
+            startPickCountdown(pickEndsAt);
+          } else {
+            updatePickCountdownDisplay();
+            updatePickInfo();
+          }
+        }
         syncProfileWithServer();
       }).catch((e) => {
         console.warn("[API] joinRoom network notice:", e);
@@ -1822,8 +1851,8 @@ function updatePickCountdownDisplay() {
   const time = $("pick-time");
   const timer = $("pick-timer");
   const banner = $("pick-banner-secs");
-  const isCounting = pickTimer !== null && pickLeft !== null && pickLeft > 0;
-  const label = isCounting ? formatCountdown(pickLeft) : (selected.size > 0 ? "Waiting" : "Open");
+  const isCounting = (pickTimer !== null || pickEndsAt > Date.now()) && pickLeft !== null && pickLeft > 0;
+  const label = isCounting ? formatCountdown(pickLeft) : (pickLeft === 0 && selected.size > 0 ? "Starting..." : (selected.size > 0 ? "Waiting" : "Open"));
   if (seconds) seconds.textContent = label;
   if (time) time.textContent = isCounting ? `${Math.max(0, pickLeft)}s` : label;
   if (banner) banner.textContent = label;
@@ -1850,7 +1879,18 @@ function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
       clearInterval(pickTimer);
       pickTimer = null;
       pickEndsAt = 0;
-      // Countdown ended! Lock room and start live game
+      updatePickCountdownDisplay();
+
+      // If connected to authoritative server, wait for server live status before transitioning!
+      if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
+        const seconds = $("pick-secs");
+        const time = $("pick-time");
+        if (seconds) seconds.textContent = "Starting...";
+        if (time) time.textContent = "Starting...";
+        return;
+      }
+
+      // Offline / standalone fallback
       if (selected.size > 0 && !playing) {
         if (!entryCharged) {
           const cost = stake * selected.size;

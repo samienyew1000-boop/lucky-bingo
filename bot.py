@@ -526,12 +526,18 @@ class GameEngine:
             derash = max(float(room_id), round(total_pot * (1.0 - comm_pct / 100.0), 2))
             winning_pattern = str(get_game_setting('winning_pattern', '1'))
 
+            now_ts = time.time()
+            cd_ends = float(room['countdown_ends_at'] or 0)
+            cd_rem = max(0, int(round(cd_ends - now_ts))) if (room['status'] == 'countdown' and cd_ends > 0) else 0
+
             return {
                 'room_id': room_id,
                 'stake': int(room_id),
                 'status': room['status'],
                 'round_id': round_id,
-                'countdown_ends_at': room['countdown_ends_at'] or 0,
+                'countdown_ends_at': cd_ends,
+                'countdown_remaining': cd_rem,
+                'server_time': now_ts,
                 'players': players,
                 'bot_players': [],
                 'calls': calls,
@@ -618,12 +624,26 @@ class GameEngine:
                 conn.commit()
 
             self._check_start_countdown(room_id)
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT status, countdown_ends_at FROM game_rooms WHERE id = ?', (room_id,))
+                current_room = cursor.fetchone()
+
+            now_ts = time.time()
+            rm_status = current_room['status'] if current_room else 'countdown'
+            cd_ends = float(current_room['countdown_ends_at'] or 0) if current_room else 0
+            cd_rem = max(0, int(round(cd_ends - now_ts))) if (rm_status == 'countdown' and cd_ends > 0) else 0
+
             return {
                 'ok': True,
                 'updated': bool(existing),
                 'cost': new_cost,
                 'balance': new_balance,
                 'round_id': round_id,
+                'status': rm_status,
+                'countdown_ends_at': cd_ends,
+                'countdown_remaining': cd_rem,
+                'server_time': now_ts,
             }
     
     def _check_start_countdown(self, room_id, conn=None):
@@ -639,8 +659,14 @@ class GameEngine:
             real_count = cursor.fetchone()['cnt']
             bot_count = len(self._bot_players.get(room_id, []))
             
-            if real_count >= 1:  # When at least 1 real player has joined with cards, start 60s countdown
-                countdown_secs = 60  # Fixed 60-second (1-minute) countdown
+            if real_count >= 1:  # When at least 1 real player has joined with cards, start countdown
+                countdown_secs = 60
+                try:
+                    custom_cd = int(get_game_setting('countdown', 60))
+                    if custom_cd >= 10:
+                        countdown_secs = custom_cd
+                except Exception:
+                    countdown_secs = 60
                 ends_at = time.time() + countdown_secs
                 now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
                 cursor.execute('UPDATE game_rooms SET status = ?, countdown_ends_at = ?, updated_at = ? WHERE id = ?', ('countdown', ends_at, now, room_id))
