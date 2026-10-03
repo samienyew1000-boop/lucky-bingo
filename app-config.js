@@ -11,7 +11,7 @@
   }
 
   // Pre-configured cloud or tunnel backend URL
-  const DEFAULT_BACKEND_URL = "https://gifts-thumbzilla-personalized-intervals.trycloudflare.com";
+  const DEFAULT_BACKEND_URL = "https://settle-messages-taxes-named.trycloudflare.com";
 
   if (apiParam) {
     window.LUCKY_BINGO_API_URL = apiParam;
