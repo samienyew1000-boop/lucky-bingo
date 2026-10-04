@@ -1356,11 +1356,12 @@ function updateBingoButton() {
   const ready = playerHasBingo();
   const button = $("bingo-btn");
   if (button) {
-    button.disabled = !ready || claimed;
     if (ready && !claimed) {
       button.classList.add("is-ready-to-claim");
+      button.disabled = false;
     } else {
       button.classList.remove("is-ready-to-claim");
+      button.disabled = Boolean(claimed);
     }
   }
   return ready;
@@ -2415,8 +2416,7 @@ function renderMineCards() {
       el.dataset.id = String(id);
       el.innerHTML = `
         <div class="lb-mine-card-header">
-          <span class="lb-mine-card-title">YOUR CARD (#${id})</span>
-          <span class="lb-mine-card-status">LIVE</span>
+          <span class="lb-mine-card-title">Cartela #${id}</span>
         </div>
         <div class="lb-binghead">${LETTERS.map((letter) => `<span>${letter}</span>`).join("")}</div>
         <div class="lb-cells"></div>
@@ -3109,6 +3109,24 @@ function bind() {
   $("random-two").addEventListener("click", () => randomPick(2));
   $("bingo-btn").addEventListener("click", claimBingo);
   $("leave-game").addEventListener("click", leaveGame);
+  const refreshBtn = $("refresh-game");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => {
+      refreshBtn.classList.add("is-spinning");
+      setTimeout(() => refreshBtn.classList.remove("is-spinning"), 800);
+      if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
+        LuckyBingoAPI.getRoomState(activeRoomId).then((st) => {
+          if (st) handleServerRoomState(st);
+          toast("REFRESHED", "win");
+        }).catch(() => toast("REFRESH FAILED", "lose"));
+      } else {
+        renderMineCards();
+        paintBoard();
+        updateGameSummary();
+        toast("REFRESHED", "win");
+      }
+    });
+  }
   const autoToggle = $("auto-mark-toggle");
   if (autoToggle) {
     autoToggle.checked = true;

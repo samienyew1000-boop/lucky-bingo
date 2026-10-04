@@ -218,14 +218,29 @@
       <div class="lb-mine-wrap" id="mine-wrap">
         <div class="lb-mine" id="mine-cards"></div>
       </div>
-
-      <div class="lb-game-actions">
-        <button type="button" class="lb-bingo-btn" id="bingo-btn" disabled>🎉 BINGO!</button>
-        <button type="button" class="lb-leave" id="leave-game">LEAVE</button>
-      </div>
-      <div class="lb-status" id="game-status">Waiting for first call…</div>
+      <div class="lb-status" id="game-status" style="display:none">Waiting for first call…</div>
       <div class="lb-round-result" id="round-result" role="status" aria-live="assertive" hidden></div>
     </section>
+  </div>
+
+  <div class="lb-game-bottom-bar" id="game-bottom-bar">
+    <button type="button" class="lb-btn-leave" id="leave-game" aria-label="Leave game">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="19" y1="12" x2="5" y2="12"></line>
+        <polyline points="12 19 5 12 12 5"></polyline>
+      </svg>
+      <span>Leave</span>
+    </button>
+    <button type="button" class="lb-btn-refresh" id="refresh-game" aria-label="Refresh game">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="23 4 23 10 17 10"></polyline>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+      </svg>
+      <span>Refresh</span>
+    </button>
+    <button type="button" class="lb-btn-bingo" id="bingo-btn" aria-label="Claim Bingo">
+      <span>Bingo!</span>
+    </button>
   </div>
 
   <nav class="lb-game-nav" aria-label="Game navigation">
