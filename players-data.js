@@ -322,7 +322,7 @@ window.LUCKY_BINGO_PLAYERS = [
     "username": "@Anj_mark1",
     "email": "Anj_mark1@t.me",
     "phone": "N/A",
-    "balance": 97.0,
+    "balance": 247.0,
     "games": 0,
     "lastActive": "Just now",
     "status": "active",

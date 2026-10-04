@@ -358,8 +358,69 @@ function handleServerRoomState(sState) {
     }
   }
 
-  // 3. Status is OPEN
+  // 3. Server reports round result (Winner announced or No Winner!) - MUST run before status 'open' cleanup
+  const overlay = $("winner-overlay");
+  const isOverlayVisible = overlay && !overlay.hidden && overlay.style.display !== "none";
+
+  if (sState.last_result && (playing || (views.game && views.game.classList.contains("is-on"))) && !claimed) {
+    const res = sState.last_result;
+    const isMatchingRound = (
+      res.round_id === sState.round_id ||
+      res.round_id === (sState.round_id - 1) ||
+      (res.ended_at && (Date.now() / 1000 - res.ended_at) < 40)
+    );
+    if (isMatchingRound) {
+      if (Array.isArray(sState.calls)) {
+        window.lastServerCalls = sState.calls;
+        for (const n of sState.calls) {
+          if (!called.includes(n)) called.push(n);
+        }
+      }
+      const myProfile = typeof LuckyBingoAPI !== "undefined" ? LuckyBingoAPI.getTelegramUser() : null;
+      const isMe = res.winner_id && myProfile && Number(res.winner_id) === Number(myProfile.id);
+      const isNoWinner = !res.winner_id && (res.winner_name === "No Winner" || !res.winner_name);
+      const winCardId = res.card_id || (selected.size ? selected.values().next().value : 440);
+      const winPattern = res.winning_pattern || "LINE";
+      const prizeAmount = res.prize || estimatedDerash || (stake * (sState.total_cards || 1));
+
+      claimed = true;
+      playing = false;
+      clearInterval(callTimer);
+
+      if (isMe) {
+        roundOutcome = "win";
+        roundWinnerName = res.winner_name || PLAYER_NAME;
+        showRoundResult("win", roundWinnerName, winPattern, winCardId);
+        showWinnerOverlay("win", roundWinnerName, prizeAmount, winCardId, winPattern);
+        toast("YOU WON!", "win");
+      } else if (isNoWinner) {
+        roundOutcome = "lose";
+        roundWinnerName = "No Winner";
+        showRoundResult("lose", "No Winner", "None", null);
+        markLoserCards();
+        toast("NO BINGO — ROUND OVER", "lose");
+        setTimeout(() => {
+          returnToCardSelection();
+        }, 4000);
+      } else {
+        roundOutcome = "lose";
+        roundWinnerName = res.winner_name || "Opponent";
+        showRoundResult("lose", roundWinnerName, winPattern, winCardId);
+        markLoserCards();
+        showWinnerOverlay("lose", roundWinnerName, prizeAmount, winCardId, winPattern);
+        toast((roundWinnerName).toUpperCase() + ` WON ON CARD #${winCardId}!`, "lose");
+      }
+      syncProfileWithServer();
+      return;
+    }
+  }
+
+  // 4. Status is OPEN
   if (sState.status === "open") {
+    // If winner overlay is currently displaying to the player, do not close it prematurely
+    if (isOverlayVisible || winnerTimer) {
+      return;
+    }
     if (playing || (views.game && views.game.classList.contains("is-on"))) {
       playing = false;
       claimed = false;
@@ -369,48 +430,6 @@ function handleServerRoomState(sState) {
     } else if (!pickTimer) {
       updatePickCountdownDisplay();
       renderPickRoomSummary();
-    }
-  }
-
-  // 4. Server reports round result (Winner announced or No Winner!)
-  if (sState.last_result && playing && !claimed) {
-    const res = sState.last_result;
-    const isMatchingRound = (
-      res.round_id === sState.round_id ||
-      res.round_id === (sState.round_id - 1) ||
-      (res.ended_at && (Date.now() / 1000 - res.ended_at) < 40)
-    );
-    if (isMatchingRound) {
-      const myProfile = typeof LuckyBingoAPI !== "undefined" ? LuckyBingoAPI.getTelegramUser() : null;
-      const isMe = res.winner_id && myProfile && Number(res.winner_id) === Number(myProfile.id);
-      const isNoWinner = !res.winner_id && (res.winner_name === "No Winner" || !res.winner_name);
-      claimed = true;
-      playing = false;
-      clearInterval(callTimer);
-      if (isMe) {
-        roundOutcome = "win";
-        roundWinnerName = res.winner_name || PLAYER_NAME;
-        showRoundResult("win", roundWinnerName, "LINE", selected.values().next().value);
-        showWinnerOverlay("win", roundWinnerName, res.prize, selected.values().next().value, "LINE");
-        toast("YOU WON!", "win");
-      } else if (isNoWinner) {
-        roundOutcome = "lose";
-        roundWinnerName = "No Winner";
-        showRoundResult("lose", "No Winner", "None", null);
-        markLoserCards();
-        toast("NO BINGO — ROUND OVER", "lose");
-      } else {
-        roundOutcome = "lose";
-        roundWinnerName = res.winner_name || "Opponent";
-        showRoundResult("lose", roundWinnerName, "LINE", null);
-        markLoserCards();
-        showWinnerOverlay("lose", roundWinnerName, res.prize || stake * 3, null, "LINE");
-        toast((roundWinnerName).toUpperCase() + " WON!", "lose");
-      }
-      syncProfileWithServer();
-      setTimeout(() => {
-        returnToCardSelection();
-      }, 4000);
     }
   }
 }
@@ -2221,25 +2240,17 @@ function renderWinnerCard(cardId, hit = null, kind = "LINE") {
   };
 
   const winIndexes = new Set();
-  const hits = hit instanceof Set ? new Set(hit) : new Set();
+  const hits = hit instanceof Set ? new Set(hit) : (Array.isArray(hit) ? new Set(hit) : new Set(called));
 
-  if (String(cardId) === "440") {
-    // Exact diagonal win line and hits matching the user reference image
-    [0, 6, 12, 18, 24].forEach((idx) => winIndexes.add(idx));
-    hits.add(58);
-    hits.add(9);
-    hits.add(52);
-  } else {
-    try {
-      const calculatedWins = winningCellIndexes(cardObj, hits, kind);
-      if (calculatedWins && calculatedWins.length > 0) {
-        calculatedWins.forEach((idx) => winIndexes.add(idx));
-      } else {
-        [0, 6, 12, 18, 24].forEach((idx) => winIndexes.add(idx));
-      }
-    } catch (e) {
+  try {
+    const calculatedWins = winningCellIndexes(cardObj, hits, kind);
+    if (calculatedWins && calculatedWins.length > 0) {
+      calculatedWins.forEach((idx) => winIndexes.add(idx));
+    } else {
       [0, 6, 12, 18, 24].forEach((idx) => winIndexes.add(idx));
     }
+  } catch (e) {
+    [0, 6, 12, 18, 24].forEach((idx) => winIndexes.add(idx));
   }
 
   cardObj.cells.forEach((val, index) => {
@@ -2274,21 +2285,25 @@ function showWinnerOverlay(outcome, winnerName, prize = null, cardId = null, kin
 
   clearInterval(winnerTimer);
   const isPlayerWinner = outcome === "win";
-  const finalName = winnerName || (isPlayerWinner ? PLAYER_NAME : "RAS");
-  const finalCardId = cardId || 440;
-  const finalPrize = Number(prize || 3800).toFixed(2);
+  const finalName = winnerName || (isPlayerWinner ? PLAYER_NAME : "Opponent");
+  const finalCardId = cardId || (selected.size ? selected.values().next().value : 440);
+  const finalPrize = Number(prize || 0).toFixed(2);
 
   if (name) name.textContent = finalName;
   if (cardElem) cardElem.textContent = `#${finalCardId}`;
   if (cardTitle) cardTitle.textContent = `CARD #${finalCardId}`;
   if (prizeElem) prizeElem.textContent = finalPrize;
-  if (message) message.textContent = isPlayerWinner ? "You won this round!" : `${finalName} won this round.`;
+  if (message) message.textContent = isPlayerWinner ? "You won this round!" : `${finalName} won this round with Card #${finalCardId}!`;
 
   playBingoVoice();
   renderWinnerConfetti();
-  renderWinnerCard(finalCardId, activeHitSet(), kind);
+  const allHits = new Set(called.length ? called : (Array.isArray(window.lastServerCalls) ? window.lastServerCalls : []));
+  renderWinnerCard(finalCardId, allHits, kind);
 
-  overlay.onclick = () => returnToCardSelection();
+  overlay.onclick = () => {
+    clearInterval(winnerTimer);
+    returnToCardSelection();
+  };
 
   let remaining = 6;
   if (seconds) seconds.textContent = String(remaining);
@@ -2317,7 +2332,7 @@ function showRoundResult(outcome, winnerName, kind = "LINE", cardId = null) {
   result.innerHTML = `
     <span class="lb-round-result-burst" aria-hidden="true">✦</span>
     <strong>${outcome === "win" ? "WON" : "ROUND OVER"}</strong>
-    <span>${outcome === "win" ? `${winnerName} · ${kind}${cardId ? ` on card #${cardId}` : ""}` : `${winnerName} has won.`}</span>
+    <span>${outcome === "win" ? `${winnerName} · ${kind}${cardId ? ` on card #${cardId}` : ""}` : `${winnerName} won on card #${cardId || ""}.`}</span>
   `;
   result.hidden = false;
   result.animate(
@@ -2742,10 +2757,6 @@ function claimBingo() {
     showWinnerOverlay("win", PLAYER_NAME, prizeWon, winCard, kind);
     rememberWinningCard(stake, winCard, PLAYER_NAME, prizeWon);
   }
-
-  setTimeout(() => {
-    returnToCardSelection();
-  }, 5000);
 }
 
 function botWins() {

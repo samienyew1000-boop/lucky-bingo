@@ -827,12 +827,12 @@ class GameEngine:
                     return {'error': 'Bingo is not complete'}
 
                 winner_name = player['first_name'] or player['username'] or 'Player'
-                self._end_round(room_id, conn, winner_id=user_id, winner_name=winner_name)
+                self._end_round(room_id, conn, winner_id=user_id, winner_name=winner_name, card_id=card_id, winning_pattern='LINE')
                 res = self.get_round_result(room_id)
                 prize = res.get('prize', 0) if res else 0
-                return {'ok': True, 'winner': winner_name, 'prize': prize}
+                return {'ok': True, 'winner': winner_name, 'prize': prize, 'card_id': int(card_id)}
     
-    def _end_round(self, room_id, conn, winner_id=None, winner_name='', is_bot=False):
+    def _end_round(self, room_id, conn, winner_id=None, winner_name='', is_bot=False, card_id=None, winning_pattern='LINE'):
         """End a round, distribute derash prize to the only 1 winner, reset room."""
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM game_rooms WHERE id = ?', (room_id,))
@@ -892,6 +892,8 @@ class GameEngine:
         self._round_results[room_id] = {
             'winner_name': winner_name,
             'winner_id': winner_id,
+            'card_id': int(card_id) if card_id is not None else None,
+            'winning_pattern': winning_pattern or 'LINE',
             'is_bot': is_bot,
             'prize': derash,
             'round_id': round_id,
