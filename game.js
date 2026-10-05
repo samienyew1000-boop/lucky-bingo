@@ -207,9 +207,11 @@ async function syncProfileWithServer() {
         const recoveredStatus = user.active_room.status;
         if (recoveredStatus === "live") {
           entryCharged = true;
-          if (!playing) beginLiveGame();
+          if (!playing && !winnerTimer) beginLiveGame();
         } else {
-          if (playing || (views.game && views.game.classList.contains("is-on"))) {
+          if (winnerTimer) {
+            // Keep winner overlay active
+          } else if (playing || (views.game && views.game.classList.contains("is-on"))) {
             returnToCardSelection();
           } else if (!views.pick.classList.contains("is-on")) {
             showView("pick");
@@ -227,7 +229,9 @@ async function syncProfileWithServer() {
         LuckyBingoAPI.startRoomPoll(activeRoomId, handleServerRoomState, 800);
       }
     } else {
-      if (playing || (views.game && views.game.classList.contains("is-on"))) {
+      if (winnerTimer) {
+        // Keep winner overlay active
+      } else if (playing || (views.game && views.game.classList.contains("is-on"))) {
         returnToCardSelection();
       }
     }
@@ -314,6 +318,9 @@ function handleServerRoomState(sState) {
 
   // 1. Status is COUNTDOWN
   if (sState.status === "countdown") {
+    if (winnerTimer) {
+      return;
+    }
     if (playing || (views.game && views.game.classList.contains("is-on"))) {
       playing = false;
       claimed = false;
@@ -345,6 +352,9 @@ function handleServerRoomState(sState) {
 
   // 2. Status is LIVE
   if (sState.status === "live") {
+    if (winnerTimer) {
+      return;
+    }
     if (!playing && selected.size > 0) {
       entryCharged = true;
       beginLiveGame();
@@ -400,7 +410,7 @@ function handleServerRoomState(sState) {
         markLoserCards();
         toast("NO BINGO — ROUND OVER", "lose");
         setTimeout(() => {
-          returnToCardSelection();
+          returnToCardSelection(true);
         }, 4000);
       } else {
         roundOutcome = "lose";
@@ -2113,7 +2123,10 @@ function hideWinnerOverlay() {
   overlay.className = "lb-winner-overlay";
 }
 
-function returnToCardSelection() {
+function returnToCardSelection(force = false) {
+  if (winnerTimer && !force) {
+    return;
+  }
   const roomId = activeRoomId;
   const room = roomId ? getLobbyRoom(roomId) : null;
   hideWinnerOverlay();
@@ -2303,10 +2316,11 @@ function showWinnerOverlay(outcome, winnerName, prize = null, cardId = null, kin
 
   overlay.onclick = () => {
     clearInterval(winnerTimer);
-    returnToCardSelection();
+    winnerTimer = null;
+    returnToCardSelection(true);
   };
 
-  let remaining = 6;
+  let remaining = 7;
   if (seconds) seconds.textContent = String(remaining);
   overlay.removeAttribute("hidden");
   overlay.hidden = false;
@@ -2316,7 +2330,8 @@ function showWinnerOverlay(outcome, winnerName, prize = null, cardId = null, kin
     if (seconds) seconds.textContent = String(Math.max(0, remaining));
     if (remaining <= 0) {
       clearInterval(winnerTimer);
-      returnToCardSelection();
+      winnerTimer = null;
+      returnToCardSelection(true);
     }
   }, 1000);
 }
