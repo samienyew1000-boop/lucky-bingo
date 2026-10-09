@@ -854,7 +854,7 @@ function renderAdminProfile() {
   if (nameEl && admin.name) nameEl.textContent = admin.name;
   if (roleEl) {
     const idDisp = admin.username ? (admin.username.startsWith("@") || /^\+?\d+$/.test(admin.username) ? admin.username : "@" + admin.username) : (admin.phone || "0999909474");
-    roleEl.textContent = `Super administrator (${idDisp})`;
+    roleEl.textContent = `Admin (${idDisp})`;
   }
   if (avatarEl) {
     if (/^\+?\d+$/.test(admin.name)) {

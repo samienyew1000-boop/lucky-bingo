@@ -4,7 +4,7 @@ window.LUCKY_BINGO_ADMIN = {
   "name": "sam",
   "username": "@samTesfa19",
   "phone": "0999909474",
-  "role": "Super administrator"
+  "role": "Administrator"
 };
 window.LUCKY_BINGO_PAYMENT_METHODS = {
   "Telebirr": {

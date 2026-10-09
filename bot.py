@@ -440,7 +440,7 @@ def export_admin_players() -> None:
             "name": (f"{admin_row['first_name'] or ''} {admin_row['last_name'] or ''}".strip() or "0999909474") if admin_row else "0999909474",
             "username": admin_uname_disp,
             "phone": (admin_row["phone_number"] if admin_row and admin_row["phone_number"] else (ADMIN_PHONES[0] if ADMIN_PHONES else "0999909474")),
-            "role": "Super administrator"
+            "role": "Administrator"
         }
         # Check if custom settings exist in data/payment_settings.json
         custom_pm_file = os.path.join(DB_DIR, "payment_settings.json")
