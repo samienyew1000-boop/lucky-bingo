@@ -92,6 +92,18 @@ const DEFAULT_STATE = {
       color: "orange",
     },
     {
+      id: "30",
+      stake: 30,
+      players: 0,
+      status: "waiting",
+      enabled: true,
+      roundId: "#LB-24092",
+      prizePool: 0,
+      lastCall: "—",
+      called: [],
+      color: "emerald",
+    },
+    {
       id: "50",
       stake: 50,
       players: 0,
@@ -102,6 +114,54 @@ const DEFAULT_STATE = {
       lastCall: "—",
       called: [],
       color: "purple",
+    },
+    {
+      id: "70",
+      stake: 70,
+      players: 0,
+      status: "waiting",
+      enabled: true,
+      roundId: "#LB-24093",
+      prizePool: 0,
+      lastCall: "—",
+      called: [],
+      color: "teal",
+    },
+    {
+      id: "100",
+      stake: 100,
+      players: 0,
+      status: "waiting",
+      enabled: true,
+      roundId: "#LB-24094",
+      prizePool: 0,
+      lastCall: "—",
+      called: [],
+      color: "amber",
+    },
+    {
+      id: "500",
+      stake: 500,
+      players: 0,
+      status: "waiting",
+      enabled: true,
+      roundId: "#LB-24095",
+      prizePool: 0,
+      lastCall: "—",
+      called: [],
+      color: "rose",
+    },
+    {
+      id: "1000",
+      stake: 1000,
+      players: 0,
+      status: "waiting",
+      enabled: true,
+      roundId: "#LB-24096",
+      prizePool: 0,
+      lastCall: "—",
+      called: [],
+      color: "indigo",
     },
   ],
   transactions: [],
@@ -1312,18 +1372,33 @@ function _startAdminDataPoll() {
     // 1. Sync rooms from authoritative server
     if (Array.isArray(data.rooms) && data.rooms.length > 0) {
       data.rooms.forEach((sRoom) => {
-        const localRoom = state.rooms.find((r) => String(r.id) === String(sRoom.room_id || sRoom.id));
-        if (localRoom) {
-          localRoom.players = sRoom.player_count || (sRoom.players ? sRoom.players.length : 0);
-          localRoom.status = sRoom.status === "open" ? "waiting" : sRoom.status;
-          localRoom.enabled = sRoom.enabled !== false;
-          localRoom.roundId = `#LB-${sRoom.round_id || "0"}`;
-          localRoom.prizePool = localRoom.players * localRoom.stake;
-          localRoom.called = Array.isArray(sRoom.calls) ? sRoom.calls : [];
-          localRoom.lastCall = localRoom.called.length > 0 ? String(localRoom.called[localRoom.called.length - 1]) : "—";
-          localRoom.realPlayersList = sRoom.players || [];
+        const rid = String(sRoom.room_id || sRoom.id);
+        let localRoom = state.rooms.find((r) => String(r.id) === rid);
+        if (!localRoom) {
+          localRoom = {
+            id: rid,
+            stake: Number(sRoom.stake || rid) || 10,
+            players: 0,
+            status: "waiting",
+            enabled: true,
+            roundId: `#LB-${sRoom.round_id || "0"}`,
+            prizePool: 0,
+            lastCall: "—",
+            called: [],
+            color: "blue",
+          };
+          state.rooms.push(localRoom);
         }
+        localRoom.players = sRoom.player_count || (sRoom.players ? sRoom.players.length : 0);
+        localRoom.status = sRoom.status === "open" ? "waiting" : sRoom.status;
+        localRoom.enabled = sRoom.enabled !== false;
+        localRoom.roundId = `#LB-${sRoom.round_id || "0"}`;
+        localRoom.prizePool = localRoom.players * localRoom.stake;
+        localRoom.called = Array.isArray(sRoom.calls) ? sRoom.calls : [];
+        localRoom.lastCall = localRoom.called.length > 0 ? String(localRoom.called[localRoom.called.length - 1]) : "—";
+        localRoom.realPlayersList = sRoom.players || [];
       });
+      state.rooms.sort((a, b) => Number(a.stake || a.id) - Number(b.stake || b.id));
       renderRooms();
       renderLive();
       renderDashboard();

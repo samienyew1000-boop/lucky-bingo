@@ -274,9 +274,8 @@ def init_db() -> None:
             )
         """)
         
-        cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES ('10', 'open', 0, datetime('now'))")
-        cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES ('20', 'open', 0, datetime('now'))")
-        cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES ('50', 'open', 0, datetime('now'))")
+        for rid in ['10', '20', '30', '50', '70', '100', '500', '1000']:
+            cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES (?, 'open', 0, datetime('now'))", (rid,))
         try:
             cursor.execute("ALTER TABLE game_rooms ADD COLUMN enabled INTEGER DEFAULT 1")
         except sqlite3.OperationalError:
@@ -1868,8 +1867,11 @@ def get_admin_overview() -> Dict[str, Any]:
         cursor = conn.cursor()
         
         # 1. Rooms
+        cursor.execute("SELECT id FROM game_rooms ORDER BY CAST(id AS INTEGER)")
+        room_rows = cursor.fetchall()
+        room_ids = [str(r['id']) for r in room_rows] if room_rows else ['10', '20', '30', '50', '70', '100', '500', '1000']
         rooms = []
-        for rid in ['10', '20', '50']:
+        for rid in room_ids:
             rstate = game_engine.get_room_state(rid)
             if rstate:
                 cursor.execute('SELECT enabled FROM game_rooms WHERE id = ?', (rid,))
@@ -2061,7 +2063,15 @@ def start_background_web_server() -> None:
                 # 1. Public lobby rooms & room state (accessible to all devices)
                 if path == '/api/rooms':
                     rooms_info = []
-                    for rid in ['10', '20', '50']:
+                    try:
+                        with get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT id FROM game_rooms ORDER BY CAST(id AS INTEGER)")
+                            r_rows = cursor.fetchall()
+                            r_ids = [str(r['id']) for r in r_rows] if r_rows else ['10', '20', '30', '50', '70', '100', '500', '1000']
+                    except Exception:
+                        r_ids = ['10', '20', '30', '50', '70', '100', '500', '1000']
+                    for rid in r_ids:
                         state = game_engine.get_room_state(rid)
                         if state:
                             result = game_engine.get_round_result(rid)

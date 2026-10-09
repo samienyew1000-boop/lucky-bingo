@@ -32,7 +32,12 @@ const PAYMENT_METHODS = Object.freeze({
 const ROOMS = [
   { id: "10", stake: 10, players: 0, status: "waiting" },
   { id: "20", stake: 20, players: 0, status: "waiting" },
+  { id: "30", stake: 30, players: 0, status: "waiting" },
   { id: "50", stake: 50, players: 0, status: "waiting" },
+  { id: "70", stake: 70, players: 0, status: "waiting" },
+  { id: "100", stake: 100, players: 0, status: "waiting" },
+  { id: "500", stake: 500, players: 0, status: "waiting" },
+  { id: "1000", stake: 1000, players: 0, status: "waiting" },
 ];
 
 const DEFAULT_LAST_WINNING_CARDS = Object.freeze([
@@ -571,15 +576,21 @@ function unregisterRealPlayerFromRoom(roomId) {
 }
 
 function sanitizeRoomCatalog(rooms) {
-  if (!Array.isArray(rooms)) return ROOMS;
-  // Local storage may contain room labels only. Server snapshots override all
-  // player counts, status, round, countdown, and prize calculations.
-  return rooms.map((room) => ({
+  if (!Array.isArray(rooms)) return [...ROOMS];
+  const list = rooms.map((room) => ({
     ...room,
     id: String(room.id),
     players: 0,
     prizePool: 0,
   }));
+  // Ensure all default rooms exist even if localStorage was saved with older rooms
+  ROOMS.forEach((defaultRoom) => {
+    if (!list.some((r) => String(r.id) === String(defaultRoom.id))) {
+      list.push({ ...defaultRoom });
+    }
+  });
+  list.sort((a, b) => Number(a.stake || a.id) - Number(b.stake || b.id));
+  return list;
 }
 
 function loadAdminRooms() {
@@ -601,7 +612,7 @@ function loadAdminRooms() {
   } catch (error) {
     // Fall back to built-in lobby rooms when storage is unavailable.
   }
-  return ROOMS;
+  return [...ROOMS];
 }
 
 function savePlayerRoomPlayers(roomId, players) {
