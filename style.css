@@ -5047,8 +5047,8 @@ body.is-lobby-active #view-lobby {
 }
 
 /* ==========================================================================
-   MOBILE LOBBY VIEW - Pixel-perfect match to reference media_1790261956207.png
-   Zero scrolling up/down or side-to-side; fully responsive and fixed in place.
+   MOBILE LOBBY VIEW - Compact Single-Screen Responsive Layout
+   All 8 stake rooms clearly visible on mobile screen without cut-off.
    ========================================================================== */
 
 .lb-lobby,
@@ -5060,10 +5060,11 @@ body.is-lobby-active #view-lobby {
   height: 100dvh !important;
   max-height: 100dvh !important;
   min-height: 100dvh !important;
-  padding: 16px 14px 12px 14px !important;
+  padding: 8px 8px 6px 8px !important;
   background: #0d5d9b !important;
-  overflow: hidden !important;
-  overscroll-behavior: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
   box-sizing: border-box !important;
   justify-content: flex-start !important;
 }
@@ -5080,9 +5081,9 @@ body.is-lobby-active #view-lobby {
   align-items: center !important;
   justify-content: space-between !important;
   width: 100% !important;
-  height: 44px !important;
-  min-height: 44px !important;
-  margin: 0 0 16px 0 !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  margin: 0 0 8px 0 !important;
   box-sizing: border-box !important;
   flex: 0 0 auto !important;
 }
@@ -5090,13 +5091,13 @@ body.is-lobby-active #view-lobby {
 .lb-balance-card {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 8px !important;
-  height: 42px !important;
-  padding: 0 14px !important;
+  gap: 6px !important;
+  height: 34px !important;
+  padding: 0 10px !important;
   background: #0c2d49 !important;
   border: 1.5px solid rgba(255, 255, 255, 0.22) !important;
-  border-radius: 12px !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
   cursor: pointer !important;
   flex: 0 0 auto !important;
 }
@@ -5105,14 +5106,14 @@ body.is-lobby-active #view-lobby {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 22px !important;
-  height: 20px !important;
+  width: 18px !important;
+  height: 16px !important;
   color: #ffffff !important;
 }
 
 .lb-wallet-icon svg {
-  width: 22px !important;
-  height: 20px !important;
+  width: 18px !important;
+  height: 16px !important;
   fill: none !important;
   stroke: #ffffff !important;
   stroke-width: 2.2 !important;
@@ -5128,46 +5129,53 @@ body.is-lobby-active #view-lobby {
 .lb-balance-value {
   display: inline-flex !important;
   align-items: baseline !important;
-  gap: 4px !important;
+  gap: 3px !important;
   color: #ffe600 !important;
   font-family: inherit !important;
-  font-size: 16.5px !important;
+  font-size: 14px !important;
   font-weight: 800 !important;
-  letter-spacing: 0.5px !important;
+  letter-spacing: 0.3px !important;
 }
 
 .lb-currency {
-  font-size: 13.5px !important;
+  font-size: 11px !important;
   font-weight: 800 !important;
   color: #ffe600 !important;
 }
 
 .lb-balance-arrow {
   color: #ffffff !important;
-  font-size: 16px !important;
-  margin-left: 2px !important;
+  font-size: 13px !important;
+  margin-left: 1px !important;
   font-weight: 700 !important;
 }
 
 .lb-lobby-actions {
   display: flex !important;
   align-items: center !important;
-  gap: 8px !important;
+  gap: 6px !important;
   flex: 0 0 auto !important;
+}
+
+.lb-lobby-voice-select {
+  height: 32px !important;
+  font-size: 11px !important;
+  padding: 2px 20px 2px 6px !important;
+  border-radius: 8px !important;
 }
 
 .lb-admin-link {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  height: 38px !important;
-  padding: 0 16px !important;
+  height: 32px !important;
+  padding: 0 10px !important;
   background: #ff5500 !important;
   color: #ffffff !important;
   font-family: inherit !important;
-  font-size: 14.5px !important;
+  font-size: 12px !important;
   font-weight: 800 !important;
-  border-radius: 9px !important;
+  border-radius: 8px !important;
   text-decoration: none !important;
   border: none !important;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
@@ -5177,14 +5185,14 @@ body.is-lobby-active #view-lobby {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  height: 38px !important;
-  padding: 0 16px !important;
+  height: 32px !important;
+  padding: 0 10px !important;
   background: #154b85 !important;
   color: #ffffff !important;
   font-family: inherit !important;
-  font-size: 14.5px !important;
+  font-size: 12px !important;
   font-weight: 800 !important;
-  border-radius: 9px !important;
+  border-radius: 8px !important;
   border: none !important;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
   cursor: pointer !important;
@@ -5196,78 +5204,81 @@ body.is-lobby-active #view-lobby {
   flex-direction: column !important;
   width: 100% !important;
   box-sizing: border-box !important;
-  flex: 0 0 auto !important;
-  margin-bottom: auto !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  margin-bottom: 0 !important;
 }
 
 /* 3. Orange Table Header */
 .lb-room-head {
   display: grid !important;
-  grid-template-columns: 19% 23% 15% 25% 18% !important;
-  column-gap: 0 !important;
+  grid-template-columns: 20% 26% 12% 23% 19% !important;
+  column-gap: 2px !important;
   row-gap: 0 !important;
-  gap: 0 !important;
   align-items: center !important;
   width: 100% !important;
-  height: 50px !important;
-  min-height: 50px !important;
-  max-height: 50px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
   padding: 0 4px !important;
-  border-radius: 14px !important;
+  border-radius: 8px !important;
   background: #ff5500 !important;
   color: #ffffff !important;
   font-family: inherit !important;
-  margin-bottom: 14px !important;
+  margin-bottom: 6px !important;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15) !important;
   box-sizing: border-box !important;
   flex: 0 0 auto !important;
 }
 
 .lb-room-head span {
-  font-size: 14.5px !important;
+  font-size: 11.5px !important;
   font-weight: 800 !important;
   color: #ffffff !important;
   text-align: center !important;
   line-height: 1 !important;
   white-space: nowrap !important;
   overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
 
 /* 4. Room Cards Container */
 .lb-rooms {
   display: flex !important;
   flex-direction: column !important;
-  gap: 14px !important;
+  gap: 5px !important;
   width: 100% !important;
   padding: 0 !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  flex: 0 0 auto !important;
+  flex: 1 1 auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
 
 /* 5. Room Card */
 .lb-room {
   display: grid !important;
-  grid-template-columns: 19% 23% 15% 25% 18% !important;
-  column-gap: 0 !important;
+  grid-template-columns: 20% 26% 12% 23% 19% !important;
+  column-gap: 2px !important;
   row-gap: 0 !important;
-  gap: 0 !important;
   align-items: center !important;
   width: 100% !important;
-  height: 84px !important;
-  min-height: 84px !important;
-  max-height: 84px !important;
+  height: 48px !important;
+  min-height: 46px !important;
+  max-height: 52px !important;
   padding: 0 4px !important;
   border: none !important;
-  border-radius: 18px !important;
+  border-radius: 10px !important;
   background: #0f3d64 !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 0 rgba(7, 30, 52, 0.45) !important;
+  box-shadow: 0 2px 0 rgba(7, 30, 52, 0.45) !important;
   font-family: inherit !important;
   box-sizing: border-box !important;
   cursor: pointer !important;
   overflow: hidden !important;
   margin: 0 !important;
+  flex: 0 0 auto !important;
 }
 
 .lb-room:hover,
@@ -5279,12 +5290,14 @@ body.is-lobby-active #view-lobby {
 
 /* Column 1: Stake */
 .lb-room-stake {
-  font-size: 15px !important;
+  font-size: 12px !important;
   font-weight: 800 !important;
   color: #ffffff !important;
   text-align: center !important;
   white-space: nowrap !important;
-  line-height: 1.2 !important;
+  line-height: 1.1 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
 
 /* Column 2: Active / Status */
@@ -5293,11 +5306,12 @@ body.is-lobby-active #view-lobby {
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 4px !important;
+  gap: 2px !important;
   position: static !important;
   min-height: 0 !important;
   padding: 0 !important;
   width: 100% !important;
+  overflow: hidden !important;
 }
 
 .lb-active-badge {
@@ -5307,14 +5321,14 @@ body.is-lobby-active #view-lobby {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 4px !important;
-  height: 19px !important;
-  padding: 1px 7px !important;
-  border: 1.5px solid #22c55e !important;
+  gap: 3px !important;
+  height: 16px !important;
+  padding: 0 5px !important;
+  border: 1px solid #22c55e !important;
   border-radius: 999px !important;
   background: linear-gradient(90deg, #ed4e50 0%, #ed4e50 78%, #22bd5a 78%, #22bd5a 100%) !important;
   color: #ffffff !important;
-  font-size: 9.5px !important;
+  font-size: 8.5px !important;
   font-weight: 800 !important;
   white-space: nowrap !important;
   line-height: 1 !important;
@@ -5322,8 +5336,8 @@ body.is-lobby-active #view-lobby {
 }
 
 .lb-active-badge i {
-  width: 5px !important;
-  height: 5px !important;
+  width: 4px !important;
+  height: 4px !important;
   border-radius: 50% !important;
   background: #ffffff !important;
   box-shadow: none !important;
@@ -5337,14 +5351,14 @@ body.is-lobby-active #view-lobby {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  height: 19px !important;
-  padding: 1px 8px !important;
-  border: 1.5px solid #22c55e !important;
+  height: 16px !important;
+  padding: 0 6px !important;
+  border: 1px solid #22c55e !important;
   border-radius: 999px !important;
   background: rgba(34, 197, 94, 0.15) !important;
   color: #22c55e !important;
   font-family: inherit !important;
-  font-size: 11px !important;
+  font-size: 9px !important;
   font-weight: 800 !important;
   white-space: nowrap !important;
   line-height: 1 !important;
@@ -5352,32 +5366,37 @@ body.is-lobby-active #view-lobby {
 }
 
 .lb-room-active-copy {
-  font-size: 11.5px !important;
-  font-weight: 700 !important;
+  font-size: 8.5px !important;
+  font-weight: 600 !important;
   color: #c0d0e6 !important;
-  line-height: 1.1 !important;
+  line-height: 1 !important;
   white-space: nowrap !important;
   text-align: center !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 100% !important;
 }
 
-/* Column 3: Players */
+/* Column 3: Cards/Players */
 .lb-room-players {
-  font-size: 14.5px !important;
+  font-size: 11.5px !important;
   font-weight: 800 !important;
   color: #ffffff !important;
   text-align: center !important;
   white-space: nowrap !important;
-  line-height: 1.2 !important;
+  line-height: 1.1 !important;
 }
 
 /* Column 4: Derash */
 .lb-room-prize {
-  font-size: 14.5px !important;
+  font-size: 11.5px !important;
   font-weight: 800 !important;
   color: #ffffff !important;
   text-align: center !important;
   white-space: nowrap !important;
-  line-height: 1.2 !important;
+  line-height: 1.1 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
 
 /* Column 5: Play Button */
@@ -5385,11 +5404,10 @@ body.is-lobby-active #view-lobby {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: calc(100% - 6px) !important;
-  margin: 0 auto !important;
-  height: 36px !important;
-  border-radius: 11px !important;
-  font-size: 13px !important;
+  width: 100% !important;
+  height: 28px !important;
+  border-radius: 7px !important;
+  font-size: 11px !important;
   font-weight: 800 !important;
   line-height: 1 !important;
   box-sizing: border-box !important;
@@ -5410,19 +5428,10 @@ body.is-lobby-active #view-lobby {
   background: #2563eb !important;
   color: #ffffff !important;
   border: none !important;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4) !important;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4) !important;
 }
 
-/* 6. Footer */
+/* 6. Footer (Hidden on compact mobile screens so all 8 rooms fit cleanly) */
 .lb-footer {
-  display: block !important;
-  width: 100% !important;
-  font-family: Consolas, "Courier New", monospace !important;
-  color: #ffffff !important;
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  text-align: center !important;
-  margin-top: auto !important;
-  padding: 18px 0 10px 0 !important;
-  flex: 0 0 auto !important;
+  display: none !important;
 }
