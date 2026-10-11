@@ -2896,10 +2896,18 @@ function getDepositPaymentAccount(method) {
   } catch (e) {}
 
   if (window.LUCKY_BINGO_PAYMENT_METHODS && window.LUCKY_BINGO_PAYMENT_METHODS[method]) {
-    return window.LUCKY_BINGO_PAYMENT_METHODS[method];
+    const raw = window.LUCKY_BINGO_PAYMENT_METHODS[method];
+    return {
+      accountName: raw.accountName || raw.account_name || raw.name || "Lucky Bingo",
+      accountNumber: raw.accountNumber || raw.account_number || "0999909474",
+    };
   }
 
-  return PAYMENT_METHODS[method] || PAYMENT_METHODS.Telebirr;
+  const fallback = PAYMENT_METHODS[method] || PAYMENT_METHODS.Telebirr;
+  return {
+    accountName: fallback.accountName || fallback.account_name || "Lucky Bingo",
+    accountNumber: fallback.accountNumber || fallback.account_number || "0999909474",
+  };
 }
 
 function updateDepositAccount() {
@@ -3089,37 +3097,123 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) syncPlayerWalletFromStorage();
 });
 
-function copyText(text) {
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-    return navigator.clipboard.writeText(text);
-  }
-  const area = document.createElement("textarea");
-  area.value = text;
-  area.setAttribute("readonly", "");
-  area.style.position = "fixed";
-  area.style.left = "-9999px";
-  document.body.appendChild(area);
-  area.select();
-  let copied = false;
+async function copyText(text) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) return false;
+
+  // 1. Try Telegram WebApp clipboard API if available
   try {
-    copied = document.execCommand("copy");
-  } finally {
-    area.remove();
+    const tg = window.Telegram?.WebApp;
+    if (tg && typeof tg.readTextFromClipboard === "function" && typeof tg.writeTextToClipboard === "function") {
+      tg.writeTextToClipboard(cleanText);
+      return true;
+    }
+  } catch (e) {}
+
+  // 2. Try modern standard Clipboard API
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    try {
+      await navigator.clipboard.writeText(cleanText);
+      return true;
+    } catch (e) {
+      // Fall through to DOM fallback
+    }
   }
-  return copied ? Promise.resolve() : Promise.reject(new Error("Copy unavailable"));
+
+  // 3. Fallback: Hidden input / textarea with mobile-friendly selection
+  try {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = cleanText;
+    input.style.position = "fixed";
+    input.style.top = "0";
+    input.style.left = "0";
+    input.style.width = "2em";
+    input.style.height = "2em";
+    input.style.padding = "0";
+    input.style.border = "none";
+    input.style.outline = "none";
+    input.style.boxShadow = "none";
+    input.style.background = "transparent";
+    input.style.opacity = "0.01";
+    input.style.zIndex = "999999";
+    document.body.appendChild(input);
+
+    input.focus();
+    if (isIOS) {
+      input.contentEditable = "true";
+      input.readOnly = false;
+      const range = document.createRange();
+      range.selectNodeContents(input);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      input.setSelectionRange(0, 999999);
+    } else {
+      input.select();
+      input.setSelectionRange(0, cleanText.length);
+    }
+
+    const success = document.execCommand("copy");
+    document.body.removeChild(input);
+    if (success) return true;
+  } catch (e) {}
+
+  // 4. Fallback 2: Textarea
+  try {
+    const area = document.createElement("textarea");
+    area.value = cleanText;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.left = "-9999px";
+    area.style.top = "0";
+    document.body.appendChild(area);
+    area.select();
+    const success = document.execCommand("copy");
+    area.remove();
+    if (success) return true;
+  } catch (e) {}
+
+  return false;
 }
 
-function copyDepositAccount() {
-  const number = $("deposit-account-number").textContent.trim();
-  copyText(number)
-    .then(() => {
-      showWalletFeedback("deposit", `${walletState.deposit} number copied: ${number}`);
-      toast("NUMBER COPIED", "win");
-    })
-    .catch(() => {
-      showWalletFeedback("deposit", `Copy failed. Use this number manually: ${number}`, true);
-      toast("COPY FAILED", "lose");
-    });
+async function copyDepositAccount() {
+  const numberEl = $("deposit-account-number");
+  const number = (numberEl ? numberEl.textContent : "").trim() || "0999909474";
+  const btn = $("copy-deposit-account");
+  const originalHtml = btn ? btn.innerHTML : "";
+
+  const success = await copyText(number);
+  if (success) {
+    if (btn) {
+      btn.innerHTML = `<span aria-hidden="true" style="color: #22c55e;">✓</span> Copied!`;
+      btn.style.borderColor = "#22c55e";
+      btn.style.color = "#16a34a";
+      setTimeout(() => {
+        if (btn) {
+          btn.innerHTML = originalHtml || `<span aria-hidden="true">▣</span> Copy number`;
+          btn.style.borderColor = "";
+          btn.style.color = "";
+        }
+      }, 2500);
+    }
+    showWalletFeedback("deposit", `✓ ${walletState.deposit} number copied: ${number}`);
+    toast("NUMBER COPIED", "win");
+  } else {
+    // If browser completely blocked clipboard, prompt user to select & copy
+    if (numberEl) {
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(numberEl);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (e) {}
+    }
+    showWalletFeedback("deposit", `Use this number: ${number}`);
+    toast(number, "win");
+  }
 }
 
 function bind() {
@@ -3184,7 +3278,8 @@ function bind() {
   document.querySelectorAll("[data-provider-action]").forEach((button) => {
     button.addEventListener("click", () => selectWalletMethod(button.dataset.providerAction, button.dataset.method));
   });
-  $("copy-deposit-account").addEventListener("click", copyDepositAccount);
+  $("copy-deposit-account")?.addEventListener("click", copyDepositAccount);
+  $("deposit-account-number")?.addEventListener("click", copyDepositAccount);
   $("deposit-form").addEventListener("submit", handleDepositSubmit);
   $("withdraw-form").addEventListener("submit", handleWithdrawSubmit);
   updateDepositAccount();
