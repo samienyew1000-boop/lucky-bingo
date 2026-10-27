@@ -518,7 +518,7 @@ class GameEngine:
             round_id = room['round_id']
             
             # Get players
-            cursor.execute('SELECT rp.user_id, rp.card_ids, u.username, u.first_name FROM room_players rp JOIN users u ON rp.user_id = u.id WHERE rp.room_id = ? AND rp.round_id = ?', (room_id, round_id))
+            cursor.execute('SELECT rp.user_id, rp.card_ids, u.username, u.first_name, u.last_name FROM room_players rp JOIN users u ON CAST(rp.user_id AS INTEGER) = CAST(u.id AS INTEGER) WHERE rp.room_id = ? AND rp.round_id = ?', (room_id, round_id))
             players = [dict(row) for row in cursor.fetchall()]
             
             # Get calls
@@ -844,8 +844,8 @@ class GameEngine:
                 )
                 called = {int(row['number']) for row in cursor.fetchall()}
                 cursor.execute(
-                    'SELECT rp.*, u.first_name, u.username FROM room_players rp '
-                    'JOIN users u ON rp.user_id = u.id '
+                    'SELECT rp.*, u.first_name, u.last_name, u.username FROM room_players rp '
+                    'JOIN users u ON CAST(rp.user_id AS INTEGER) = CAST(u.id AS INTEGER) '
                     'WHERE rp.room_id = ? AND rp.user_id = ? AND rp.round_id = ?',
                     (room_id, user_id, round_id),
                 )
@@ -875,7 +875,10 @@ class GameEngine:
                 if not any(all(cell_is_hit(index) for index in line) for line in winning_lines):
                     return {'error': 'Bingo is not complete'}
 
-                winner_name = player['first_name'] or player['username'] or 'Player'
+                winner_first = (player['first_name'] or '').strip()
+                winner_last = (player['last_name'] or '').strip()
+                winner_full = f"{winner_first} {winner_last}".strip()
+                winner_name = winner_full or (f"@{player['username'].strip()}" if player['username'] else 'Player')
                 self._end_round(room_id, conn, winner_id=user_id, winner_name=winner_name, card_id=card_id, winning_pattern='LINE')
                 res = self.get_round_result(room_id)
                 prize = res.get('prize', 0) if res else 0
@@ -1654,7 +1657,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM transactions WHERE status = 'pending' ORDER BY created_at DESC LIMIT 8")
+            cursor.execute("""
+                SELECT t.*, u.username, u.first_name, u.last_name 
+                FROM transactions t 
+                LEFT JOIN users u ON CAST(t.user_id AS INTEGER) = CAST(u.id AS INTEGER)
+                WHERE t.status = 'pending' 
+                ORDER BY t.created_at DESC LIMIT 8
+            """)
             txs = cursor.fetchall()
         
         if not txs:
@@ -1670,8 +1679,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             t_type = "ተቀማጭ (Deposit)" if t["type"] == "deposit" else "ማውጫ (Withdraw)"
             amt = float(t["amount"] or 0.0)
             u_id = t["user_id"]
+            player_disp = f"{t['first_name'] or ''} {t['last_name'] or ''}".strip() or (f"@{t['username']}" if t['username'] else f"User {u_id}")
             keyboard.append([
-                InlineKeyboardButton(text=f"📋 {t_type} {amt:.0f} ETB (User {u_id})", callback_data="admin_pending_tx")
+                InlineKeyboardButton(text=f"📋 {t_type} {amt:.0f} ETB ({player_disp})", callback_data="admin_pending_tx")
             ])
             keyboard.append([
                 InlineKeyboardButton(text="✓ አጽድቅ (Approve)", callback_data=f"tx_app_{tx_id}"),
@@ -1950,9 +1960,12 @@ def get_admin_overview() -> Dict[str, Any]:
         
         # 3. Transactions
         cursor.execute('''
-            SELECT t.id, t.user_id, t.type, t.method, t.amount, t.phone_number, t.status, t.created_at, u.username, u.first_name, u.last_name
+            SELECT t.id, t.user_id, t.type, t.method, t.amount, t.phone_number, t.status, t.created_at,
+                   COALESCE(u.username, '') as username,
+                   COALESCE(u.first_name, '') as first_name,
+                   COALESCE(u.last_name, '') as last_name
             FROM transactions t
-            LEFT JOIN users u ON t.user_id = u.id
+            LEFT JOIN users u ON CAST(t.user_id AS INTEGER) = CAST(u.id AS INTEGER)
             ORDER BY t.created_at DESC LIMIT 50
         ''')
         txs_list = [dict(r) for r in cursor.fetchall()]

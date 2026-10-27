@@ -392,11 +392,34 @@ function initials(name) {
 
 function formatTelegramPlayerName(obj) {
   if (!obj) return "Player";
-  const first = (obj.first_name || "").trim();
-  const last = (obj.last_name || "").trim();
+  let first = (obj.first_name || obj.firstName || "").trim();
+  let last = (obj.last_name || obj.lastName || "").trim();
+
+  // If first and last are missing, check matched player from state.players or window.LUCKY_BINGO_PLAYERS
+  if (!first && !last && (obj.user_id || obj.userId || obj.id)) {
+    const uid = String(obj.user_id || obj.userId || obj.id).replace(/\D/g, "");
+    if (typeof state !== "undefined" && Array.isArray(state.players)) {
+      const match = state.players.find((p) => String(p.userId || p.id).replace(/\D/g, "") === uid);
+      if (match) {
+        if (match.first_name || match.firstName) first = (match.first_name || match.firstName).trim();
+        if (match.last_name || match.lastName) last = (match.last_name || match.lastName).trim();
+        if (!first && match.name && !match.name.startsWith("@") && match.name !== "Player" && match.name !== "Lucky Player") {
+          return match.name;
+        }
+      }
+    }
+    if (typeof window !== "undefined" && Array.isArray(window.LUCKY_BINGO_PLAYERS)) {
+      const match2 = window.LUCKY_BINGO_PLAYERS.find((p) => String(p.id).replace(/\D/g, "") === uid);
+      if (match2 && match2.name && !match2.name.startsWith("@") && match2.name !== "Player" && match2.name !== "Lucky Player") {
+        return match2.name;
+      }
+    }
+  }
+
   const fullName = [first, last].filter((x) => x && x !== "Lucky Player" && x !== "Player").join(" ").trim();
   if (fullName) return fullName;
   if (first && first !== "Lucky Player" && first !== "Player") return first;
+
   if (obj.username && obj.username.trim()) {
     const u = obj.username.trim().replace(/^@+/, "");
     if (u && !u.startsWith("Player_") && !u.startsWith("player_")) {
@@ -413,6 +436,55 @@ function formatTelegramPlayerName(obj) {
     return obj.username.trim().startsWith("@") ? obj.username.trim() : `@${obj.username.trim()}`;
   }
   return "Player";
+}
+
+function mapApiPlayer(u) {
+  return {
+    id: `LB-${String(u.id).slice(-5)}`,
+    userId: u.id,
+    first_name: u.first_name || "",
+    last_name: u.last_name || "",
+    name: formatTelegramPlayerName(u),
+    username: (u.username || "").trim().replace(/^@+/, ""),
+    phone: u.phone_number || "—",
+    role: u.role || "player",
+    balance: Number(u.balance) || 0,
+    status: u.status || "active",
+    verified: Boolean(u.is_verified),
+    joined: u.registered_at || "Recent",
+    activeRoom: u.active_room || "Lobby",
+  };
+}
+
+function mapApiTransaction(tx) {
+  const matchedPlayer = (state.players || []).find((p) => String(p.userId || p.id).replace(/\D/g, "") === String(tx.user_id || tx.userId || "").replace(/\D/g, ""));
+  const txWithName = {
+    ...tx,
+    first_name: (tx.first_name && tx.first_name !== "Lucky Player" && tx.first_name !== "Player" ? tx.first_name : "") || (matchedPlayer ? (matchedPlayer.first_name || matchedPlayer.firstName) : ""),
+    last_name: tx.last_name || (matchedPlayer ? (matchedPlayer.last_name || matchedPlayer.lastName) : ""),
+    username: tx.username || (matchedPlayer ? matchedPlayer.username : ""),
+  };
+
+  let playerName = formatTelegramPlayerName(txWithName);
+  if ((!playerName || playerName === "Player" || playerName.startsWith("@")) && matchedPlayer && matchedPlayer.name && !matchedPlayer.name.startsWith("@") && matchedPlayer.name !== "Player") {
+    playerName = matchedPlayer.name;
+  }
+
+  const rawUsername = (tx.username || (matchedPlayer ? matchedPlayer.username : "") || "").trim().replace(/^@+/, "");
+
+  return {
+    id: tx.id,
+    playerId: `LB-${String(tx.user_id || tx.userId || "").slice(-5)}`,
+    userId: tx.user_id || tx.userId,
+    player: playerName,
+    username: rawUsername,
+    phone: tx.phone_number || (matchedPlayer ? matchedPlayer.phone : "") || "",
+    type: tx.type,
+    method: tx.method || "Telebirr",
+    amount: Number(tx.amount) || 0,
+    requested: tx.created_at || "Recent",
+    status: (tx.status === "completed" || tx.status === "approved") ? "approved" : tx.status,
+  };
 }
 
 function currentRoom() {
@@ -1292,19 +1364,12 @@ function bindEvents() {
     showToast("Fetching latest requests from server...");
     if (typeof LuckyBingoAPI !== "undefined" && LuckyBingoAPI.getAdminOverview) {
       LuckyBingoAPI.getAdminOverview().then((data) => {
+        if (data && Array.isArray(data.players) && data.players.length > 0) {
+          state.players = data.players.map(mapApiPlayer);
+          renderPlayers();
+        }
         if (data && Array.isArray(data.transactions)) {
-          state.transactions = data.transactions.map((tx) => ({
-            id: tx.id,
-            playerId: `LB-${String(tx.user_id).slice(-5)}`,
-            userId: tx.user_id,
-            player: (tx.username && tx.username.trim()) ? (tx.username.startsWith("@") ? tx.username.trim() : `@${tx.username.trim()}`) : ((tx.first_name && tx.first_name.trim() !== "Lucky Player" && tx.first_name.trim() !== "Player") ? tx.first_name.trim() : (tx.phone_number || "Player")),
-            phone: tx.phone_number || "",
-            type: tx.type,
-            method: tx.method || "Telebirr",
-            amount: Number(tx.amount) || 0,
-            requested: tx.created_at || "Recent",
-            status: (tx.status === "completed" || tx.status === "approved") ? "approved" : tx.status,
-          }));
+          state.transactions = data.transactions.map(mapApiTransaction);
           renderTransactions();
           renderFinanceSummary();
           showToast(`Synced ${state.transactions.length} transactions from server.`);
@@ -1435,41 +1500,17 @@ function _startAdminDataPoll() {
       renderDashboard();
     }
 
-    // 2. Sync transactions from SQLite database
-    if (Array.isArray(data.transactions)) {
-      state.transactions = data.transactions.map((tx) => ({
-        id: tx.id,
-        playerId: `LB-${String(tx.user_id).slice(-5)}`,
-        userId: tx.user_id,
-        player: formatTelegramPlayerName(tx),
-        username: (tx.username || "").trim().replace(/^@+/, ""),
-        phone: tx.phone_number || "",
-        type: tx.type,
-        method: tx.method || "Telebirr",
-        amount: Number(tx.amount) || 0,
-        requested: tx.created_at || "Recent",
-        status: (tx.status === "completed" || tx.status === "approved") ? "approved" : tx.status,
-      }));
-      renderTransactions();
-      renderFinanceSummary();
+    // 2. Sync registered users / players from SQLite database
+    if (Array.isArray(data.players) && data.players.length > 0) {
+      state.players = data.players.map(mapApiPlayer);
+      renderPlayers();
     }
 
-    // 3. Sync registered users / players from SQLite database
-    if (Array.isArray(data.players) && data.players.length > 0) {
-      state.players = data.players.map((u) => ({
-        id: `LB-${String(u.id).slice(-5)}`,
-        userId: u.id,
-        name: formatTelegramPlayerName(u),
-        username: (u.username || "").trim().replace(/^@+/, ""),
-        phone: u.phone_number || "—",
-        role: u.role || "player",
-        balance: Number(u.balance) || 0,
-        status: u.status || "active",
-        verified: Boolean(u.is_verified),
-        joined: u.registered_at || "Recent",
-        activeRoom: u.active_room || "Lobby",
-      }));
-      renderPlayers();
+    // 3. Sync transactions from SQLite database
+    if (Array.isArray(data.transactions)) {
+      state.transactions = data.transactions.map(mapApiTransaction);
+      renderTransactions();
+      renderFinanceSummary();
     }
 
     // 4. Sync metrics
