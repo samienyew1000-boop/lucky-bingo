@@ -372,8 +372,12 @@ function money(value) {
 
 function initials(name) {
   if (!name) return "PL";
-  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  const clean = String(name).trim().replace(/^@+/, "");
+  const parts = clean.split(/\s+/).filter(Boolean);
   if (!parts.length) return "PL";
+  if (parts.length === 1) {
+    return clean.slice(0, 2).toUpperCase() || "PL";
+  }
   return (
     parts
       .slice(0, 2)
@@ -1266,7 +1270,7 @@ function bindEvents() {
             id: tx.id,
             playerId: `LB-${String(tx.user_id).slice(-5)}`,
             userId: tx.user_id,
-            player: tx.first_name || (tx.username ? `@${tx.username}` : (tx.phone_number || "Player")),
+            player: (tx.username && tx.username.trim()) ? (tx.username.startsWith("@") ? tx.username.trim() : `@${tx.username.trim()}`) : ((tx.first_name && tx.first_name.trim() !== "Lucky Player" && tx.first_name.trim() !== "Player") ? tx.first_name.trim() : (tx.phone_number || "Player")),
             phone: tx.phone_number || "",
             type: tx.type,
             method: tx.method || "Telebirr",
@@ -1410,7 +1414,7 @@ function _startAdminDataPoll() {
         id: tx.id,
         playerId: `LB-${String(tx.user_id).slice(-5)}`,
         userId: tx.user_id,
-        player: tx.first_name || (tx.username ? `@${tx.username}` : (tx.phone_number || "Player")),
+        player: (tx.username && tx.username.trim()) ? (tx.username.startsWith("@") ? tx.username.trim() : `@${tx.username.trim()}`) : ((tx.first_name && tx.first_name.trim() !== "Lucky Player" && tx.first_name.trim() !== "Player") ? tx.first_name.trim() : (tx.phone_number || "Player")),
         phone: tx.phone_number || "",
         type: tx.type,
         method: tx.method || "Telebirr",
@@ -1427,7 +1431,7 @@ function _startAdminDataPoll() {
       state.players = data.players.map((u) => ({
         id: `LB-${String(u.id).slice(-5)}`,
         userId: u.id,
-        name: [u.first_name, u.last_name].filter(Boolean).join(" ") || (u.username ? `@${u.username}` : "Player"),
+        name: (u.username && u.username.trim()) ? (u.username.startsWith("@") ? u.username.trim() : `@${u.username.trim()}`) : ([u.first_name, u.last_name].filter((x) => x && x.trim() && x.trim() !== "Lucky Player").join(" ") || u.phone_number || "Player"),
         phone: u.phone_number || "—",
         role: u.role || "player",
         balance: Number(u.balance) || 0,

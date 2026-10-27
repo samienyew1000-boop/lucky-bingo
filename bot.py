@@ -79,7 +79,7 @@ WEB_APP_URL = raw_web_url if raw_web_url.endswith("/") else f"{raw_web_url}/"
 GROUP_URL = os.getenv("GROUP_URL", "https://t.me/your_telegram_channel")
 CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/su121316")
 
-def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bool = False, user_id: int = 0) -> str:
+def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bool = False, user_id: int = 0, username: str = "") -> str:
     """Builds authoritative Vercel WebApp URL including tunnel API and role params."""
     base = WEB_APP_URL.rstrip("/")
     if subpath:
@@ -94,8 +94,12 @@ def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bo
     params = []
     if tunnel_url and "api=" not in base:
         params.append(f"api={urllib.parse.quote(tunnel_url, safe='')}")
+    if user_id:
+        params.append(f"u={user_id}")
+    if username:
+        params.append(f"username={urllib.parse.quote(username.lstrip('@'), safe='')}")
     if is_admin_user:
-        params.append(f"role=admin&admin=1&u={user_id}")
+        params.append("role=admin&admin=1")
     if extra_query:
         params.append(extra_query.lstrip("?&"))
 
@@ -1110,9 +1114,9 @@ def get_payment_methods() -> Dict[str, Dict[str, Any]]:
 # ==============================================================================
 # KEYBOARD BUILDERS
 # ==============================================================================
-def get_main_keyboard(is_admin_user: bool = False, user_id: int = 0) -> InlineKeyboardMarkup:
+def get_main_keyboard(is_admin_user: bool = False, user_id: int = 0, username: str = "") -> InlineKeyboardMarkup:
     """Exact 6-row main inline keyboard, plus Admin Controls row if authorized."""
-    web_app_url = get_game_web_url(is_admin_user=is_admin_user, user_id=user_id)
+    web_app_url = get_game_web_url(is_admin_user=is_admin_user, user_id=user_id, username=username)
 
     keyboard = [
         # Row 1: Full-width Web App button
@@ -1241,7 +1245,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if update.effective_message:
         await update.effective_message.reply_text(
             text=welcome_text,
-            reply_markup=get_main_keyboard(is_admin_user=is_admin, user_id=user.id),
+            reply_markup=get_main_keyboard(is_admin_user=is_admin, user_id=user.id, username=user.username or ""),
             parse_mode="Markdown",
         )
 
@@ -1333,7 +1337,7 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Send full inline keyboard menu (with Admin Controls if authorized admin)
     await message.reply_text(
         text=msg_text,
-        reply_markup=get_main_keyboard(is_admin_user=is_admin, user_id=user.id),
+        reply_markup=get_main_keyboard(is_admin_user=is_admin, user_id=user.id, username=user.username or ""),
         parse_mode="Markdown",
     )
 
@@ -2076,12 +2080,19 @@ def start_background_web_server() -> None:
             if user_id_str and user_id_str.isdigit():
                 uid = int(user_id_str)
                 u = get_user_by_id(uid)
+                clean_username = username.lstrip('@').strip() if username else ""
                 if not u:
                     u = get_or_create_user(
                         user_id=uid,
-                        username=username or f"player_{str(uid)[-4:]}",
-                        first_name="Lucky Player"
+                        username=clean_username or f"player_{str(uid)[-4:]}",
+                        first_name=""
                     )
+                elif clean_username and (not u.get('username') or u.get('username').startswith('player_') or u.get('username') != clean_username):
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("UPDATE users SET username = ? WHERE id = ?", (clean_username, uid))
+                        conn.commit()
+                    u['username'] = clean_username
                 if not u.get('is_verified'):
                     with get_db_connection() as conn:
                         cursor = conn.cursor()

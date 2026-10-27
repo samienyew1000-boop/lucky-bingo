@@ -76,7 +76,7 @@ const LuckyBingoAPI = (() => {
       const deviceUser = {
         id: Number(deviceId),
         username: `Player_${deviceId.slice(-4)}`,
-        first_name: "Lucky Player",
+        first_name: `Player_${deviceId.slice(-4)}`,
       };
       localStorage.setItem("lb_tg_user", JSON.stringify(deviceUser));
       return deviceUser;
