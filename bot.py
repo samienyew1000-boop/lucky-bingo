@@ -527,7 +527,9 @@ class GameEngine:
 
             now_ts = time.time()
             current_status = room['status']
-            # Self-healing check: if room is marked countdown or live, but has 0 cards or 0 players:
+            cd_ends = float(room['countdown_ends_at'] or 0)
+
+            # Self-healing check 1: if room is marked countdown or live, but has 0 cards or 0 players:
             if current_status in ('countdown', 'live') and (total_cards == 0 or len(players) == 0):
                 now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
                 cursor.execute("UPDATE game_rooms SET status = 'open', countdown_ends_at = 0, updated_at = ? WHERE id = ?", (now_str, room_id))
@@ -535,8 +537,21 @@ class GameEngine:
                 current_status = 'open'
                 cd_ends = 0.0
                 cd_rem = 0
+            # Self-healing check 2: if room is in countdown and countdown time has finished, transition to live!
+            elif current_status == 'countdown' and cd_ends > 0 and now_ts >= cd_ends:
+                now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                if total_cards > 0:
+                    cursor.execute("UPDATE game_rooms SET status = 'live', updated_at = ? WHERE id = ?", (now_str, room_id))
+                    conn.commit()
+                    current_status = 'live'
+                    cd_rem = 0
+                    self._schedule_next_call(room_id)
+                else:
+                    cursor.execute("UPDATE game_rooms SET status = 'open', countdown_ends_at = 0, updated_at = ? WHERE id = ?", (now_str, room_id))
+                    conn.commit()
+                    current_status = 'open'
+                    cd_rem = 0
             else:
-                cd_ends = float(room['countdown_ends_at'] or 0)
                 cd_rem = max(0, int(round(cd_ends - now_ts))) if (current_status == 'countdown' and cd_ends > 0) else 0
 
             return {

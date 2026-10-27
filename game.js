@@ -344,6 +344,11 @@ function handleServerRoomState(sState) {
 
     pickLeft = remaining;
     pickEndsAt = Date.now() + remaining * 1000;
+    if (remaining <= 0 && selected.size > 0 && !playing && !winnerTimer) {
+      entryCharged = true;
+      beginLiveGame();
+      return;
+    }
     if (!pickTimer && remaining > 0) {
       startPickCountdown(pickEndsAt);
     } else {
@@ -1985,12 +1990,10 @@ function startPickCountdown(roomStartsAt = null, roomRoundKey = null) {
       pickEndsAt = 0;
       updatePickCountdownDisplay();
 
-      // If connected to authoritative server, wait for server live status before transitioning!
-      if (activeRoomId && typeof LuckyBingoAPI !== "undefined") {
-        const seconds = $("pick-secs");
-        const time = $("pick-time");
-        if (seconds) seconds.textContent = "Starting...";
-        if (time) time.textContent = "Starting...";
+      // When countdown completes, directly begin the game!
+      if (selected.size > 0 && !playing && !winnerTimer) {
+        entryCharged = true;
+        beginLiveGame();
         return;
       }
 
