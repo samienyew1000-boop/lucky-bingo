@@ -55,7 +55,14 @@ const LuckyBingoAPI = (() => {
       const params = new URLSearchParams(window.location.search);
       const uid = params.get("u") || params.get("user_id") || params.get("tg_user_id");
       if (uid && /^\d+$/.test(uid)) {
-        const u = { id: Number(uid), username: params.get("username") || `Player_${uid.slice(-4)}`, first_name: "Player" };
+        const firstName = params.get("name") || params.get("first_name") || "";
+        const lastName = params.get("last_name") || "";
+        const u = {
+          id: Number(uid),
+          username: params.get("username") || `Player_${uid.slice(-4)}`,
+          first_name: firstName || "Player",
+          last_name: lastName || "",
+        };
         localStorage.setItem("lb_tg_user", JSON.stringify(u));
         return u;
       }
@@ -108,6 +115,12 @@ const LuckyBingoAPI = (() => {
       headers["X-Telegram-User-Id"] = String(user.id);
       if (user.username) {
         headers["X-Telegram-User-Name"] = String(user.username);
+      }
+      if (user.first_name) {
+        headers["X-Telegram-First-Name"] = encodeURIComponent(String(user.first_name));
+      }
+      if (user.last_name) {
+        headers["X-Telegram-Last-Name"] = encodeURIComponent(String(user.last_name));
       }
     }
 

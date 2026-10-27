@@ -79,7 +79,7 @@ WEB_APP_URL = raw_web_url if raw_web_url.endswith("/") else f"{raw_web_url}/"
 GROUP_URL = os.getenv("GROUP_URL", "https://t.me/your_telegram_channel")
 CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/su121316")
 
-def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bool = False, user_id: int = 0, username: str = "") -> str:
+def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bool = False, user_id: int = 0, username: str = "", first_name: str = "", last_name: str = "") -> str:
     """Builds authoritative Vercel WebApp URL including tunnel API and role params."""
     base = WEB_APP_URL.rstrip("/")
     if subpath:
@@ -98,6 +98,10 @@ def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bo
         params.append(f"u={user_id}")
     if username:
         params.append(f"username={urllib.parse.quote(username.lstrip('@'), safe='')}")
+    if first_name:
+        params.append(f"name={urllib.parse.quote(first_name, safe='')}")
+    if last_name:
+        params.append(f"last_name={urllib.parse.quote(last_name, safe='')}")
     if is_admin_user:
         params.append("role=admin&admin=1")
     if extra_query:
@@ -1114,9 +1118,9 @@ def get_payment_methods() -> Dict[str, Dict[str, Any]]:
 # ==============================================================================
 # KEYBOARD BUILDERS
 # ==============================================================================
-def get_main_keyboard(is_admin_user: bool = False, user_id: int = 0, username: str = "") -> InlineKeyboardMarkup:
+def get_main_keyboard(is_admin_user: bool = False, user_id: int = 0, username: str = "", first_name: str = "", last_name: str = "") -> InlineKeyboardMarkup:
     """Exact 6-row main inline keyboard, plus Admin Controls row if authorized."""
-    web_app_url = get_game_web_url(is_admin_user=is_admin_user, user_id=user_id, username=username)
+    web_app_url = get_game_web_url(is_admin_user=is_admin_user, user_id=user_id, username=username, first_name=first_name, last_name=last_name)
 
     keyboard = [
         # Row 1: Full-width Web App button
@@ -1245,7 +1249,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if update.effective_message:
         await update.effective_message.reply_text(
             text=welcome_text,
-            reply_markup=get_main_keyboard(is_admin_user=is_admin, user_id=user.id, username=user.username or ""),
+            reply_markup=get_main_keyboard(is_admin_user=is_admin, user_id=user.id, username=user.username or "", first_name=user.first_name or "", last_name=user.last_name or ""),
             parse_mode="Markdown",
         )
 
@@ -1337,7 +1341,7 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Send full inline keyboard menu (with Admin Controls if authorized admin)
     await message.reply_text(
         text=msg_text,
-        reply_markup=get_main_keyboard(is_admin_user=is_admin, user_id=user.id, username=user.username or ""),
+        reply_markup=get_main_keyboard(is_admin_user=is_admin, user_id=user.id, username=user.username or "", first_name=user.first_name or "", last_name=user.last_name or ""),
         parse_mode="Markdown",
     )
 
@@ -1944,7 +1948,7 @@ def get_admin_overview() -> Dict[str, Any]:
         
         # 3. Transactions
         cursor.execute('''
-            SELECT t.id, t.user_id, t.type, t.method, t.amount, t.phone_number, t.status, t.created_at, u.username, u.first_name
+            SELECT t.id, t.user_id, t.type, t.method, t.amount, t.phone_number, t.status, t.created_at, u.username, u.first_name, u.last_name
             FROM transactions t
             LEFT JOIN users u ON t.user_id = u.id
             ORDER BY t.created_at DESC LIMIT 50
@@ -2077,22 +2081,44 @@ def start_background_web_server() -> None:
 
             user_id_str = self.headers.get('X-Telegram-User-Id')
             username = self.headers.get('X-Telegram-User-Name', '')
+            raw_first = self.headers.get('X-Telegram-First-Name', '')
+            raw_last = self.headers.get('X-Telegram-Last-Name', '')
+            first_name = urllib.parse.unquote(raw_first).strip() if raw_first else ""
+            last_name = urllib.parse.unquote(raw_last).strip() if raw_last else ""
+
             if user_id_str and user_id_str.isdigit():
                 uid = int(user_id_str)
                 u = get_user_by_id(uid)
                 clean_username = username.lstrip('@').strip() if username else ""
+                clean_first = first_name if first_name not in ("Lucky Player", "Player") else ""
                 if not u:
                     u = get_or_create_user(
                         user_id=uid,
                         username=clean_username or f"player_{str(uid)[-4:]}",
-                        first_name=""
+                        first_name=clean_first,
+                        last_name=last_name
                     )
-                elif clean_username and (not u.get('username') or u.get('username').startswith('player_') or u.get('username') != clean_username):
-                    with get_db_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("UPDATE users SET username = ? WHERE id = ?", (clean_username, uid))
-                        conn.commit()
-                    u['username'] = clean_username
+                else:
+                    updates = []
+                    params = []
+                    if clean_username and (not u.get('username') or u.get('username').startswith('player_') or u.get('username') != clean_username):
+                        updates.append("username = ?")
+                        params.append(clean_username)
+                        u['username'] = clean_username
+                    if clean_first and (not u.get('first_name') or u.get('first_name') in ("Lucky Player", "Player") or u.get('first_name') != clean_first):
+                        updates.append("first_name = ?")
+                        params.append(clean_first)
+                        u['first_name'] = clean_first
+                    if last_name and (not u.get('last_name') or u.get('last_name') != last_name):
+                        updates.append("last_name = ?")
+                        params.append(last_name)
+                        u['last_name'] = last_name
+                    if updates:
+                        params.append(uid)
+                        with get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
+                            conn.commit()
                 if not u.get('is_verified'):
                     with get_db_connection() as conn:
                         cursor = conn.cursor()

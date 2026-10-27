@@ -390,6 +390,31 @@ function initials(name) {
   );
 }
 
+function formatTelegramPlayerName(obj) {
+  if (!obj) return "Player";
+  const first = (obj.first_name || "").trim();
+  const last = (obj.last_name || "").trim();
+  const fullName = [first, last].filter((x) => x && x !== "Lucky Player" && x !== "Player").join(" ").trim();
+  if (fullName) return fullName;
+  if (first && first !== "Lucky Player" && first !== "Player") return first;
+  if (obj.username && obj.username.trim()) {
+    const u = obj.username.trim().replace(/^@+/, "");
+    if (u && !u.startsWith("Player_") && !u.startsWith("player_")) {
+      return `@${u}`;
+    }
+  }
+  if (obj.phone_number && obj.phone_number.trim()) {
+    return obj.phone_number.trim();
+  }
+  if (obj.phone && obj.phone.trim() && obj.phone.trim() !== "—") {
+    return obj.phone.trim();
+  }
+  if (obj.username && obj.username.trim()) {
+    return obj.username.trim().startsWith("@") ? obj.username.trim() : `@${obj.username.trim()}`;
+  }
+  return "Player";
+}
+
 function currentRoom() {
   return state.rooms.find((room) => room.id === selectedLiveRoomId) || state.rooms[0] || null;
 }
@@ -739,7 +764,8 @@ function transactionRow(transaction) {
   const isPending = transaction.status === "pending";
   const statusLabel = transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1);
   const action = isPending ? `<button type="button" class="admin-table-action is-approve" data-transaction-action="approve" data-id="${escapeHTML(transaction.id)}">✓ Approve</button><button type="button" class="admin-table-action is-reject" data-transaction-action="reject" data-id="${escapeHTML(transaction.id)}">× Reject</button>` : `<span class="admin-small-muted">${escapeHTML(transaction.processedAt || "Processed")}</span>`;
-  return `<tr><td><div class="admin-player-cell"><span class="admin-player-avatar avatar-${escapeHTML(playerForTransaction(transaction).avatar)}">${initials(transaction.player)}</span><span><strong>${escapeHTML(transaction.player)}</strong><small>${escapeHTML(transaction.id)}</small></span></div></td><td>${transaction.type === "deposit" ? "Deposit" : "Withdrawal"}</td><td>${escapeHTML(transaction.method)}</td><td><strong class="admin-table-amount is-${transaction.type}">${transaction.type === "withdraw" ? "−" : "+"}${money(transaction.amount)}</strong></td><td>${escapeHTML(transaction.requested)}</td><td><span class="admin-status-pill is-${escapeHTML(transaction.status)}">${escapeHTML(statusLabel)}</span></td><td><div class="admin-table-actions">${action}</div></td></tr>`;
+  const subInfo = transaction.username ? `@${escapeHTML(transaction.username)} · ${escapeHTML(transaction.id)}` : escapeHTML(transaction.id);
+  return `<tr><td><div class="admin-player-cell"><span class="admin-player-avatar avatar-${escapeHTML(playerForTransaction(transaction).avatar)}">${initials(transaction.player)}</span><span><strong>${escapeHTML(transaction.player)}</strong><small>${subInfo}</small></span></div></td><td>${transaction.type === "deposit" ? "Deposit" : "Withdrawal"}</td><td>${escapeHTML(transaction.method)}</td><td><strong class="admin-table-amount is-${transaction.type}">${transaction.type === "withdraw" ? "−" : "+"}${money(transaction.amount)}</strong></td><td>${escapeHTML(transaction.requested)}</td><td><span class="admin-status-pill is-${escapeHTML(transaction.status)}">${escapeHTML(statusLabel)}</span></td><td><div class="admin-table-actions">${action}</div></td></tr>`;
 }
 
 function playerForTransaction(transaction) {
@@ -846,7 +872,8 @@ function renderPlayers() {
 function playerRow(player) {
   const isBlocked = player.status === "blocked";
   const statusLabel = player.status.charAt(0).toUpperCase() + player.status.slice(1);
-  return `<tr><td><div class="admin-player-cell"><span class="admin-player-avatar avatar-${escapeHTML(player.avatar)}">${initials(player.name)}</span><span><strong>${escapeHTML(player.name)}</strong><small>${escapeHTML(player.id)}</small></span></div></td><td><div class="admin-contact-cell"><span>${escapeHTML(player.email)}</span><small>${escapeHTML(player.phone)}</small></div></td><td><strong class="admin-table-amount">${money(player.balance)}</strong></td><td>${fmt(player.games)}</td><td>${escapeHTML(player.lastActive)}</td><td><span class="admin-status-pill is-${escapeHTML(player.status)}">${escapeHTML(statusLabel)}</span></td><td><div class="admin-action-menu"><button type="button" class="admin-action-menu-button" data-player-menu="${escapeHTML(player.id)}" aria-label="Actions for ${escapeHTML(player.name)}">•••</button><div class="admin-action-menu-list"><button type="button" data-player-action="edit" data-id="${escapeHTML(player.id)}">Edit player</button><button type="button" data-player-action="password" data-id="${escapeHTML(player.id)}">Change password</button><button type="button" class="${isBlocked ? "" : "is-danger"}" data-player-action="${isBlocked ? "unblock" : "block"}" data-id="${escapeHTML(player.id)}">${isBlocked ? "Unblock account" : "Block account"}</button></div></div></td></tr>`;
+  const subInfo = player.username ? `@${escapeHTML(player.username)} · ${escapeHTML(player.id)}` : escapeHTML(player.id);
+  return `<tr><td><div class="admin-player-cell"><span class="admin-player-avatar avatar-${escapeHTML(player.avatar || "blue")}">${initials(player.name)}</span><span><strong>${escapeHTML(player.name)}</strong><small>${subInfo}</small></span></div></td><td><div class="admin-contact-cell"><span>${escapeHTML(player.email || "—")}</span><small>${escapeHTML(player.phone || "—")}</small></div></td><td><strong class="admin-table-amount">${money(player.balance)}</strong></td><td>${fmt(player.games || 0)}</td><td>${escapeHTML(player.lastActive || "Recently")}</td><td><span class="admin-status-pill is-${escapeHTML(player.status)}">${escapeHTML(statusLabel)}</span></td><td><div class="admin-action-menu"><button type="button" class="admin-action-menu-button" data-player-menu="${escapeHTML(player.id)}" aria-label="Actions for ${escapeHTML(player.name)}">•••</button><div class="admin-action-menu-list"><button type="button" data-player-action="edit" data-id="${escapeHTML(player.id)}">Edit player</button><button type="button" data-player-action="password" data-id="${escapeHTML(player.id)}">Change password</button><button type="button" class="${isBlocked ? "" : "is-danger"}" data-player-action="${isBlocked ? "unblock" : "block"}" data-id="${escapeHTML(player.id)}">${isBlocked ? "Unblock account" : "Block account"}</button></div></div></td></tr>`;
 }
 
 function renderAdminProfile() {
@@ -1414,7 +1441,8 @@ function _startAdminDataPoll() {
         id: tx.id,
         playerId: `LB-${String(tx.user_id).slice(-5)}`,
         userId: tx.user_id,
-        player: (tx.username && tx.username.trim()) ? (tx.username.startsWith("@") ? tx.username.trim() : `@${tx.username.trim()}`) : ((tx.first_name && tx.first_name.trim() !== "Lucky Player" && tx.first_name.trim() !== "Player") ? tx.first_name.trim() : (tx.phone_number || "Player")),
+        player: formatTelegramPlayerName(tx),
+        username: (tx.username || "").trim().replace(/^@+/, ""),
         phone: tx.phone_number || "",
         type: tx.type,
         method: tx.method || "Telebirr",
@@ -1431,7 +1459,8 @@ function _startAdminDataPoll() {
       state.players = data.players.map((u) => ({
         id: `LB-${String(u.id).slice(-5)}`,
         userId: u.id,
-        name: (u.username && u.username.trim()) ? (u.username.startsWith("@") ? u.username.trim() : `@${u.username.trim()}`) : ([u.first_name, u.last_name].filter((x) => x && x.trim() && x.trim() !== "Lucky Player").join(" ") || u.phone_number || "Player"),
+        name: formatTelegramPlayerName(u),
+        username: (u.username || "").trim().replace(/^@+/, ""),
         phone: u.phone_number || "—",
         role: u.role || "player",
         balance: Number(u.balance) || 0,
