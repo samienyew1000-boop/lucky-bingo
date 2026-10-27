@@ -696,6 +696,21 @@ function startRoomCountdown(room, now = Date.now(), seconds = null) {
 function roomDisplayState(room, now = Date.now()) {
   const roomKey = String(room.id);
   const server = serverRoomStates[roomKey];
+  const serverCards = server && typeof server.total_cards === "number"
+    ? server.total_cards
+    : (server ? Number(server.player_count) || 0 : 0);
+
+  // If there are NO cards or players in the room, it MUST be Open!
+  // Never show "In Play" or "00:00 Starting" when cards === 0
+  if (serverCards === 0) {
+    return {
+      type: "open",
+      label: "Open",
+      ariaLabel: "Open for players",
+      roundKey: `open:${roomKey}`,
+    };
+  }
+
   if (server?.status === "countdown") {
     const startsAt = Number(server.countdown_ends_at || 0) * 1000;
     const safeLeft = Math.max(0, Math.ceil((startsAt - now) / 1000));

@@ -276,6 +276,8 @@ def init_db() -> None:
         
         for rid in ['10', '20', '30', '50', '70', '100', '500', '1000']:
             cursor.execute("INSERT OR IGNORE INTO game_rooms (id, status, round_id, updated_at) VALUES (?, 'open', 0, datetime('now'))", (rid,))
+        # On server startup, reset any rooms that were left in countdown or live without active players
+        cursor.execute("UPDATE game_rooms SET status = 'open', countdown_ends_at = 0 WHERE status IN ('countdown', 'live')")
         try:
             cursor.execute("ALTER TABLE game_rooms ADD COLUMN enabled INTEGER DEFAULT 1")
         except sqlite3.OperationalError:
@@ -524,13 +526,23 @@ class GameEngine:
             winning_pattern = str(get_game_setting('winning_pattern', '1'))
 
             now_ts = time.time()
-            cd_ends = float(room['countdown_ends_at'] or 0)
-            cd_rem = max(0, int(round(cd_ends - now_ts))) if (room['status'] == 'countdown' and cd_ends > 0) else 0
+            current_status = room['status']
+            # Self-healing check: if room is marked countdown or live, but has 0 cards or 0 players:
+            if current_status in ('countdown', 'live') and (total_cards == 0 or len(players) == 0):
+                now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute("UPDATE game_rooms SET status = 'open', countdown_ends_at = 0, updated_at = ? WHERE id = ?", (now_str, room_id))
+                conn.commit()
+                current_status = 'open'
+                cd_ends = 0.0
+                cd_rem = 0
+            else:
+                cd_ends = float(room['countdown_ends_at'] or 0)
+                cd_rem = max(0, int(round(cd_ends - now_ts))) if (current_status == 'countdown' and cd_ends > 0) else 0
 
             return {
                 'room_id': room_id,
                 'stake': int(room_id),
-                'status': room['status'],
+                'status': current_status,
                 'round_id': round_id,
                 'countdown_ends_at': cd_ends,
                 'countdown_remaining': cd_rem,
@@ -697,11 +709,18 @@ class GameEngine:
         with self.lock:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('SELECT status FROM game_rooms WHERE id = ?', (room_id,))
+                cursor.execute('SELECT status, round_id FROM game_rooms WHERE id = ?', (room_id,))
                 room = cursor.fetchone()
                 if not room or room['status'] != 'countdown':
                     return
                 now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                # Check if real players actually joined with cards
+                cursor.execute('SELECT COUNT(*) as cnt FROM room_players WHERE room_id = ? AND round_id = ?', (room_id, room['round_id']))
+                real_cnt = cursor.fetchone()['cnt']
+                if real_cnt == 0:
+                    cursor.execute("UPDATE game_rooms SET status = 'open', countdown_ends_at = 0, updated_at = ? WHERE id = ?", (now, room_id))
+                    conn.commit()
+                    return
                 cursor.execute('UPDATE game_rooms SET status = ?, updated_at = ? WHERE id = ?', ('live', now, room_id))
                 conn.commit()
 
@@ -736,6 +755,12 @@ class GameEngine:
                     return
                 
                 round_id = room['round_id']
+                
+                # Check if any players remain in the game
+                cursor.execute('SELECT COUNT(*) as cnt FROM room_players WHERE room_id = ? AND round_id = ?', (room_id, round_id))
+                if cursor.fetchone()['cnt'] == 0:
+                    self._end_round(room_id, conn, winner_id=None, winner_name='No Players')
+                    return
                 
                 # Get already called numbers
                 cursor.execute('SELECT number FROM game_calls WHERE room_id = ? AND round_id = ?', (room_id, round_id))
@@ -933,6 +958,18 @@ class GameEngine:
                 
                 cursor.execute('DELETE FROM room_players WHERE room_id = ? AND user_id = ? AND round_id = ?', (room_id, user_id, round_id))
                 conn.commit()
+
+                # If no players remain in this room, cancel countdown and reset room to open
+                cursor.execute('SELECT COUNT(*) as cnt FROM room_players WHERE room_id = ? AND round_id = ?', (room_id, round_id))
+                remaining_cnt = cursor.fetchone()['cnt']
+                if remaining_cnt == 0 and room['status'] in ('countdown', 'live'):
+                    if room_id in self._call_timers:
+                        self._call_timers[room_id].cancel()
+                        del self._call_timers[room_id]
+                    now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                    cursor.execute("UPDATE game_rooms SET status = 'open', countdown_ends_at = 0, updated_at = ? WHERE id = ?", (now, room_id))
+                    conn.commit()
+
                 return {'ok': True}
 
     def admin_pause_room(self, room_id, paused=True):
