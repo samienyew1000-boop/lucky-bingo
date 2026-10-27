@@ -31,7 +31,7 @@ const LuckyBingoAPI = (() => {
     if (currentHost === "localhost" || currentHost === "127.0.0.1") {
       _baseUrl = "";
     } else {
-      _baseUrl = "";
+      _baseUrl = "https://lucky-bingo.ethiodeploy.com";
     }
     return _baseUrl;
   }
@@ -214,16 +214,35 @@ const LuckyBingoAPI = (() => {
   }
 
   async function deposit(amount, method, reference, phone) {
+    const user = getTelegramUser();
     return apiRequest("/api/deposit", {
       method: "POST",
-      body: JSON.stringify({ amount, method, reference, phone }),
+      body: JSON.stringify({
+        amount,
+        method,
+        reference,
+        phone,
+        user_id: user?.id,
+        first_name: user?.first_name,
+        last_name: user?.last_name,
+        username: user?.username,
+      }),
     });
   }
 
   async function withdraw(amount, method, phone) {
+    const user = getTelegramUser();
     return apiRequest("/api/withdraw", {
       method: "POST",
-      body: JSON.stringify({ amount, method, phone }),
+      body: JSON.stringify({
+        amount,
+        method,
+        phone,
+        user_id: user?.id,
+        first_name: user?.first_name,
+        last_name: user?.last_name,
+        username: user?.username,
+      }),
     });
   }
 

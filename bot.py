@@ -2050,7 +2050,12 @@ def start_background_web_server() -> None:
         def send_cors_headers(self):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Telegram-Init-Data, X-Telegram-User-Id, X-Telegram-User-Name, X-Admin-Token, X-Admin-Password, Authorization')
+            req_headers = self.headers.get('Access-Control-Request-Headers')
+            if req_headers:
+                self.send_header('Access-Control-Allow-Headers', req_headers)
+            else:
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Telegram-Init-Data, X-Telegram-User-Id, X-Telegram-User-Name, X-Telegram-First-Name, X-Telegram-Last-Name, X-Admin-Token, X-Admin-Password, Authorization, *')
+            self.send_header('Access-Control-Max-Age', '86400')
             
         def do_OPTIONS(self):
             self.send_response(200)
@@ -2348,6 +2353,21 @@ def start_background_web_server() -> None:
             # 5. Player authenticated endpoints
             if self.path.startswith('/api/'):
                 user = self.get_user_from_headers()
+                if not user and body and body.get('user_id'):
+                    body_uid = body.get('user_id')
+                    if str(body_uid).isdigit():
+                        uid = int(body_uid)
+                        user = get_user_by_id(uid)
+                        if not user:
+                            b_first = str(body.get('first_name', '')).strip()
+                            b_last = str(body.get('last_name', '')).strip()
+                            b_user = str(body.get('username', '')).strip()
+                            user = get_or_create_user(
+                                user_id=uid,
+                                username=b_user or f"player_{str(uid)[-4:]}",
+                                first_name=b_first if b_first not in ("Lucky Player", "Player") else "",
+                                last_name=b_last
+                            )
                 if not user:
                     return self.send_json({'error': 'Unauthorized'}, status=401)
 
