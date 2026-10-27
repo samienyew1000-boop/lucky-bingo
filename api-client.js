@@ -116,12 +116,6 @@ const LuckyBingoAPI = (() => {
       if (user.username) {
         headers["X-Telegram-User-Name"] = String(user.username);
       }
-      if (user.first_name) {
-        headers["X-Telegram-First-Name"] = encodeURIComponent(String(user.first_name));
-      }
-      if (user.last_name) {
-        headers["X-Telegram-Last-Name"] = encodeURIComponent(String(user.last_name));
-      }
     }
 
     try {
