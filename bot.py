@@ -62,19 +62,21 @@ from telegram.ext import (
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-def load_dotenv(filepath=".env"):
+def load_dotenv(filepath=None):
+    if filepath is None:
+        filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     if os.path.exists(filepath):
         with open(filepath, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, val = line.split("=", 1)
-                    os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+                    os.environ[key.strip()] = val.strip().strip('"').strip("'")
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8903701497:AAEMVWcaDSxdz7aQLVerCn4gPiEOOoGFp4Q")
-raw_web_url = os.getenv("WEB_APP_URL", "https://lucky-bingo.ethiodeploy.com/").strip()
+raw_web_url = os.getenv("WEB_APP_URL", "https://lucky-bingo-iota.vercel.app/").strip()
 WEB_APP_URL = raw_web_url if raw_web_url.endswith("/") else f"{raw_web_url}/"
 GROUP_URL = os.getenv("GROUP_URL", "https://t.me/your_telegram_channel")
 CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/su121316")
