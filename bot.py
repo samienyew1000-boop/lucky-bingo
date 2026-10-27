@@ -90,7 +90,7 @@ def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bo
         fragment = extra_query
         extra_query = ""
 
-    tunnel_url = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "https://lucky-bingo.ethiodeploy.com")
+    tunnel_url = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "https://traveling-philosophy-limits-john.trycloudflare.com")
     params = []
     if tunnel_url and "api=" not in base:
         params.append(f"api={urllib.parse.quote(tunnel_url, safe='')}")
