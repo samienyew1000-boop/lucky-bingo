@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import json
 import sqlite3
 import logging
@@ -81,6 +82,35 @@ WEB_APP_URL = raw_web_url if raw_web_url.endswith("/") else f"{raw_web_url}/"
 GROUP_URL = os.getenv("GROUP_URL", "https://t.me/your_telegram_channel")
 CONTACT_URL = os.getenv("CONTACT_URL", "https://t.me/su121316")
 
+
+_cached_live_tunnel_url = None
+_last_tunnel_check_time = 0.0
+
+def get_live_tunnel_url() -> str:
+    """Dynamically detects active Cloudflare quick tunnel URL from pm2 logs or env."""
+    global _cached_live_tunnel_url, _last_tunnel_check_time
+    now = time.time()
+    if _cached_live_tunnel_url and (now - _last_tunnel_check_time < 30.0):
+        return _cached_live_tunnel_url
+
+    for log_path in ['/root/.pm2/logs/lucky-tunnel-error.log', '/root/.pm2/logs/lucky-tunnel-out.log']:
+        try:
+            if os.path.exists(log_path):
+                with open(log_path, 'r', errors='ignore') as f:
+                    for line in reversed(f.readlines()):
+                        m = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+                        if m:
+                            _cached_live_tunnel_url = m.group(0)
+                            _last_tunnel_check_time = now
+                            return _cached_live_tunnel_url
+        except Exception:
+            pass
+
+    fallback = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "https://retain-projectors-packaging-shopping.trycloudflare.com")
+    _cached_live_tunnel_url = fallback
+    _last_tunnel_check_time = now
+    return fallback
+
 def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bool = False, user_id: int = 0, username: str = "", first_name: str = "", last_name: str = "") -> str:
     """Builds authoritative Vercel WebApp URL including tunnel API and role params."""
     base = WEB_APP_URL.rstrip("/")
@@ -92,7 +122,7 @@ def get_game_web_url(subpath: str = "", extra_query: str = "", is_admin_user: bo
         fragment = extra_query
         extra_query = ""
 
-    tunnel_url = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "https://traveling-philosophy-limits-john.trycloudflare.com")
+    tunnel_url = get_live_tunnel_url()
     params = []
     if tunnel_url and "api=" not in base:
         params.append(f"api={urllib.parse.quote(tunnel_url, safe='')}")

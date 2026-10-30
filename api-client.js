@@ -31,7 +31,7 @@ const LuckyBingoAPI = (() => {
     if (currentHost === "localhost" || currentHost === "127.0.0.1") {
       _baseUrl = "";
     } else {
-      _baseUrl = "https://traveling-philosophy-limits-john.trycloudflare.com";
+      _baseUrl = "https://retain-projectors-packaging-shopping.trycloudflare.com";
     }
     return _baseUrl;
   }

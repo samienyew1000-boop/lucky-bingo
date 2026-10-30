@@ -6,7 +6,7 @@
   const apiParam = params.get("api");
 
   // 24/7 VPS Cloud Backend URL
-  const DEFAULT_BACKEND_URL = "https://traveling-philosophy-limits-john.trycloudflare.com";
+  const DEFAULT_BACKEND_URL = "https://retain-projectors-packaging-shopping.trycloudflare.com";
 
   if (apiParam) {
     try {
@@ -17,12 +17,12 @@
     try {
       const stored = localStorage.getItem("lb_api_url");
       // If stored URL was the old dead ethiodeploy server, override with active VPS backend
-      if (!stored || stored.includes("ethiodeploy.com")) {
+      if (!stored || stored.includes("ethiodeploy.com") || stored.includes("traveling-philosophy-limits-john")) {
         localStorage.setItem("lb_api_url", DEFAULT_BACKEND_URL);
       }
     } catch (e) {}
     window.LUCKY_BINGO_API_URL = localStorage.getItem("lb_api_url") || DEFAULT_BACKEND_URL;
-    if (window.LUCKY_BINGO_API_URL.includes("ethiodeploy.com")) {
+    if (window.LUCKY_BINGO_API_URL.includes("ethiodeploy.com") || window.LUCKY_BINGO_API_URL.includes("traveling-philosophy-limits-john")) {
       window.LUCKY_BINGO_API_URL = DEFAULT_BACKEND_URL;
       try {
         localStorage.setItem("lb_api_url", DEFAULT_BACKEND_URL);
