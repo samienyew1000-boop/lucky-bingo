@@ -106,7 +106,7 @@ def get_live_tunnel_url() -> str:
         except Exception:
             pass
 
-    fallback = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "https://retain-projectors-packaging-shopping.trycloudflare.com")
+    fallback = os.getenv("TUNNEL_API_URL") or os.getenv("PUBLIC_API_URL", "https://pamela-sapphire-developing-emotions.trycloudflare.com")
     _cached_live_tunnel_url = fallback
     _last_tunnel_check_time = now
     return fallback
